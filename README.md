@@ -1,4 +1,4 @@
-﻿# AgentsKontakt · 本机跨应用 AI 信箱
+﻿# AgentsKontakt · 本机跨应用 AI 信箱（文档大部分是AI写的，看重点接入新agent就可以了。）
 
 使用方法：安装项目完成后，打开 AGENT，输入：查询本机上的 AgentsKontakt 并且接入。
 
@@ -24,10 +24,39 @@
 
 ## 30 秒上手（运维细节）
 
+### 安装（以当前 Releases 安装包为准）
+
+从 [Releases](https://github.com/meinvnvshuaidezhu/AgentsKontakt/releases) 下载当前版本 `AgentsKontakt-x64-<版本>-Setup.exe`，双击运行安装向导：
+
+- 默认安装目录 `%LOCALAPPDATA%\Programs\AgentsKontakt`，**安装目录本身即数据根**（扁平布局：程序与信箱数据同目录，日后整体可搬迁）
+- 安装过程自动完成：信箱目录树初始化、开始菜单/桌面快捷方式、标准卸载入口（设置→应用可见）、Defender 排除目录注册（一次 UAC，拒绝不影响安装）
+- 完成后双击快捷方式启动，邮差托盘常驻；开机自启（可选，无需管理员）：`& <安装目录>\app\AgentsKontaktPost.exe --register-autostart`
+
+静默安装（运维/批量部署）：
+
+```powershell
+# 默认目录
+AgentsKontakt-x64-2.4.2.0-Setup.exe --silent
+# 自定义安装目录；跳过 Defender 排除；跳过快捷方式
+AgentsKontakt-x64-2.4.2.0-Setup.exe --silent --install-dir D:\Software\AgentsKontakt --no-defender --no-shortcuts
+# 数据目录与安装目录分离（默认不分离：数据根=安装目录）
+AgentsKontakt-x64-2.4.2.0-Setup.exe --silent --data-dir D:\AgentsKontaktData
+```
+
+便携（免安装）：下载同版 `AgentsKontakt-x64-<版本>.zip`，解压到任意可写目录，运行 `app\AgentsKontaktPost.exe`。数据根解析顺序：`MAILBOX_ROOT` → 脚本所在目录的上级目录 → 当前工作目录，与调用时 cwd 无关。
+
+卸载：设置→应用→AgentsKontakt（安装器注册的标准入口），或 `& <安装目录>\app\AgentsKontaktPost.exe --uninstall`（默认保留数据目录）。
+
+开发直跑（源码树）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\init.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\watch.ps1   # 可选：兜底守护
+```
 
 ## 接入新 agent（清单）
 
-标准流程是 **agent 自助接入**，人只说一句话：「读取本信箱根目录的 AGENTS.md，按说明把你注册进信箱」。agent 会读 [AGENTS.md](AGENTS.md) → [PROTOCOL.md](PROTOCOL.md) 的「接入流程」一节，依次完成：自查 CLI → 写自己的 `registry\<name>.md` → 跑 `init.ps1` → 发 NO-REPLY 自检消息 → 开始使用。
+标准流程是 **agent 自助接入**，人只说一句话：「搜索本机安装的AgentsKontakt应用，读取根目录的 AGENTS.md，按说明把你注册进信箱」。agent 会读 [AGENTS.md](AGENTS.md) → [PROTOCOL.md](PROTOCOL.md) 的「接入流程」一节，依次完成：自查 CLI → 写自己的 `registry\<name>.md` → 跑 `init.ps1` → 发 NO-REPLY 自检消息 → 开始使用。
 
 补充：
 

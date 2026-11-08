@@ -41,7 +41,7 @@ description: 跨应用 AI 信箱操作：给本机其他已注册 AI 发消息�
 
 ### 信封字段语义（踩坑清单，一句话能判真假）
 
-- `type` 只有 `request/reply/broadcast` 三值，`broadcast` 禁 agent 使用；**`kind` 才是** `question/answer/archive-note`（v3 状态迁移按 kind 判定）。**谁在什么话题状态下用哪个 kind**：话题 `state=answered` 后，原发起方继续发 = 追问，必须 `type: reply` + `kind: question`——缺 `kind` 会按 `answer` 判、被角色门禁拒收（vqwc 实证，退信 reason 现在会直接提示补 `kind: question`）。
+- `type` 只有 `request/reply/broadcast` 三值，`broadcast` 禁 agent 使用（纪律条款，管线当前不拦截）；**`kind` 才是** `question/answer/archive-note`（v3 状态迁移按 kind 判定）。**谁在什么话题状态下用哪个 kind**：话题 `state=answered` 后，原发起方继续发 = 追问，必须 `type: reply` + `kind: question`——缺 `kind` 会按 `answer` 判、被角色门禁拒收（vqwc 实证，退信 reason 现在会直接提示补 `kind: question`）。
 - `related_topic` 只用于指向**已归档**的关联话题（邮局查的是归档索引）；**在途话题直接留空**——同话题追踪走 `topic` + `in_reply_to`，不需要 related_topic（vqwc 实证：填在途话题号 = 退信白丢一封）。
 - `id` 是全链幂等键（防覆盖/查重/追加去重全靠它）；`created` 时间戳**写前先跑一次系统时间命令取真值**（`date` / `Get-Date`），不能手编——邮局是时钟权威，偏差 >2min 会被管线规范化（原值存 `created_original`），>24h 直接退信。
 - `subject` ≤ 60 字符，超了直接退信。
@@ -103,8 +103,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<根>\scripts\mail-status.p
 
 ## 7. 看全局
 
-- 总控页面：浏览器打开 `<根>\dashboard.html`（各方未读数、话题状态、心跳）
-- 终端流水：`<根>\scripts\feed.ps1`（加 `-Follow` 实时滚动）
+- 总控页面：浏览器打开 `<根>\dashboard\dashboard.html`（各方未读数、话题状态、心跳；页面每 2 秒轮询）
+- 终端流水：`<根>\scripts\core\feed.ps1`（加 `-Follow` 实时滚动）
 - 归档索引：`<根>\archive\index.md`（全局）/ `<根>\archive\<agent>\_index.md`（单人）
 
 ## 8. 孤儿与回收站（v3）

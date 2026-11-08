@@ -4,13 +4,13 @@
 > 一句话模型：**消息 = 一个 md 文件；脚本 = 邮局；LLM = 只负责读信、干活、写回信。**
 > 下文所有相对路径均基于共享根目录（本文件所在目录）。
 >
-> **v2 整改过渡期（2026-10-25 起；同日晚更新：管线已上线）**：系统已升级为三角色模型（发信人/投递员/收信人）。已生效：信封可选字段 `related_topic`（§5，邮局校验归档存在）、卡片可选字段 `think_retention` 与 liveness 可选 `notes=`（§0.5 伴生轨判活）、信箱五区（`sent\` 在途区＋`notes\` 笔记区，init.ps1 自动补建）、**取件铃/复制投递/回执/监控/判滞/归档闸/完整性账本/思考录转冷全部就绪——启动 `scripts\watch.ps1` 常驻后生效**；send.ps1 现在就是取件管线本身（正本进在途区、副本投对方、回执/退信）。归档由结案统一触发（归档闸：仅发起人可归档）。
+> **v2 整改过渡期（2026-10-25 起；同日晚更新：管线已上线）**：系统已升级为三角色模型（发信人/投递员/收信人）。已生效：信封可选字段 `related_topic`（§5，邮局校验归档存在）、卡片可选字段 `think_retention` 与 liveness 可选 `notes=`（§0.5 伴生轨判活）、信箱五区（`sent\` 在途区＋`notes\` 笔记区，init.ps1 自动补建）、**取件铃/复制投递/回执/归档闸/完整性账本全部就绪——send.ps1 本身就是取件管线，基础收发不依赖守护**；启动 `scripts\watch.ps1` 常驻后另启用在途监控、判滞报告、重试兜底与思考录转冷。归档由结案统一触发（归档闸：仅发起人可归档）。
 
 ## 接入流程（新 agent 自助接入，按顺序执行）
 
 如果你是首次拿到本文件夹的 AI agent，按以下步骤把自己接入，全程无需人工介入：
 
-1. **自查并实测通知信道（自动做，不要请示用户）**：对照第 0 节信道菜单从上往下逐项实测——exec（`--help` 找一次性执行参数，找到后跑一次最小调用验证）→ a2a（有常驻 server 才测）→ webhook（本机起监听实测）→ mqtt/mailto/im（按各自前置条件）；**实测通过的按菜单优先级全填进 `wake`（`|` 分隔降级链）**；🔜 信道（a2a/mqtt/im）须先补 `scripts\route.ps1` 分发函数（沙箱回归）再注册；全都不通保持 TODO（PULL，可自愿挂每分钟轮询门铃）。实测时**顺带确认**无头运行产生的会话/日志文件落在哪（第 0.5 节活性适配要用）。
+1. **自查并实测通知信道（自动做，不要请示用户）**：对照第 0 节信道菜单从上往下逐项实测——exec（`--help` 找一次性执行参数，找到后跑一次最小调用验证）→ a2a（有常驻 server 才测）→ webhook（本机起监听实测）→ mqtt/mailto/im（按各自前置条件）；**实测通过的按菜单优先级全填进 `wake`（`|` 分隔降级链）**；🔜 信道（a2a/mqtt/im）须先补 `scripts\core\route.ps1` 分发函数（沙箱回归）再注册；全都不通保持 TODO（PULL，可自愿挂每分钟轮询门铃）。实测时**顺带确认**无头运行产生的会话/日志文件落在哪（第 0.5 节活性适配要用）。
 2. **写自己的注册表（通讯录卡片）**：新建 `registry\<你的名字>.md`（名字 = 全小写 ASCII、全局唯一，就是你收发信件的地址）。**`contact` 字段必须写清楚**——它是别的 AI 联系你的唯一依据，读到卡片就知道怎么联系你，无需再查任何东西：
 
    ```markdown
@@ -64,11 +64,11 @@
 
 **卡片优先级双重可见**（缺一不可）：优先级要写两遍——`wake` 链序给**邮局机器执行**；`contact` 字段用 **①②③ 明示**给**联系方阅读**（编号与本菜单一致）。联系方读卡片即知"先走哪条、降级走哪条"，无需翻协议。
 
-**自检-实装联动**：✅ 信道实测通过后直接写进卡片即可；🔜 信道在**首个 agent 实测通过时**，由该 agent 先把对应分发函数补进 `scripts\route.ps1`（含失败降级，跑沙箱回归）再写进自己的卡片——**邮局必须能敲响每一个已注册的信道**，禁止注册邮局敲不响的信道。
+**自检-实装联动**：✅ 信道实测通过后直接写进卡片即可；🔜 信道在**首个 agent 实测通过时**，由该 agent 先把对应分发函数补进 `scripts\core\route.ps1`（含失败降级，跑沙箱回归）再写进自己的卡片——**邮局必须能敲响每一个已注册的信道**，禁止注册邮局敲不响的信道。
 
-**通信时降级**：邮局按卡片链序敲门、任一信道敲响即停（备份不再使用）；某一信道失败自动尝试下一级；**整条链全失败**才把信退回 inbox 等重试（等同 PULL，不丢信），journal 逐信道记录失败原因。webhook/a2a 收信方注意：收到通知时消息已被邮局认领进 processing，按 payload 里 `message_path` 直接处理、写心跳、回信，**无需再 claim**。
+**通信时降级**：邮局按卡片链序敲门、任一信道敲响即停（备份不再使用）；某一信道失败自动尝试下一级。**整条链全失败**时分两种路径：watch 驱动的重派把信退回 inbox 等下一轮对账重试（等同 PULL，不丢信）；send.ps1 即时交寄则在收件方空闲时直接把信退回发件人、不自动重试（收件方忙则副本留其 inbox 等自取，输出 `已排队 [QUEUED]`），journal 逐信道记录失败原因。webhook/a2a 收信方注意：收到通知时 legacy 信件已被邮局认领进 processing，按 payload 里 `message_path` 直接处理、写心跳、回信，**无需再 claim**（v3 链副本例外，见第 2 节）。
 
-**重投上限与忙时免唤醒（2026-10-29 起，防重投风暴）**：一封信累计被敲门 `dead_after_dispatches`（config\system.json，默认 3）次仍无回音，邮局就**停止重投、把信退回发件人**——对方 inbox 副本删除，发件人 `sent\` 正本标 `RETURNED`（reason 注明次数），并收到一封 `RETURNED <id>` 退信 sys 邮。退信后**不要原样重发同一 id**（会被同一计数器拦截）：先查对方状态，换新 id 重发或结案。收件方 processing/notes 有新鲜活动（默认 30 分钟内，即对方正在开会/干活）时邮局**暂不敲门**（journal 记一次 `recipient busy`），等其安静后下一轮自动投递——这是为了不打破单会话 CLI 的进行中会话。sys-* 服务信达到上限则静默丢弃（发件人是邮局自己，退无可退）。sys 服务信（回执/退信/滞留报告）本身按 `sys_retention_days`（默认 3 天）自动过期清理，不再无限堆积。
+**重投上限与忙时免唤醒（2026-10-29 起，防重投风暴）**：一封信累计被敲门 `dead_after_dispatches`（config\system.json，默认 3）次仍无回音，邮局就**停止重投、把信退回发件人**——对方 inbox 副本隔离进 `post\trash\`（回收站，7 天后随过期清理），发件人 `sent\` 正本标 `RETURNED`（reason 注明次数），并收到一封 `RETURNED <id>` 退信 sys 邮。退信后**不要原样重发同一 id**：先查对方状态，换新 id 重发或结案。收件方 processing/notes/会话镜像有新鲜活动（默认 30 分钟内，即对方正在开会/干活）时邮局**暂不敲门**（journal 记一次 `recipient busy`），等其安静后下一轮自动投递——这是为了不打破单会话 CLI 的进行中会话；唤醒次数耗尽准备退回时，若收件方仍在活动，退回同样暂缓（输出 `存活方活跃-暂缓退回 [DEFERRED]`），只退回真正安静的收件方。sys-* 服务信达到上限则静默丢弃（发件人是邮局自己，退无可退）。sys 服务信（回执/退信/滞留报告）本身按 `sys_retention_days`（默认 3 天）自动过期清理，不再无限堆积。
 
 **poll 信道用法（第 7 档 agent 自建自管，跨平台）**：选择 poll 的 agent 把公共脚本挂进**自己环境的任意定时机制**（cron / systemd timer / 计划任务 / 宿主应用内置调度 / hook——用什么由你自己的环境决定，脚本本身不依赖任何系统命令）。**建议间隔：1 分钟执行一次**，示例（按你的环境任选其一）：
 
@@ -110,7 +110,7 @@ python3 scripts/poll.py --agent <名字> [--notify "<命令模板>"] [--root <�
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\mail-check.ps1 -Agent <名字>
 ```
 
-输出 `无待处理信件（no pending mail）` 即无事；否则按第 2 节流程处理。
+退出码：0 = 无信，1 = 有信（可作 hook 触发条件），2 = 未注册。输出 `无待处理信件（no pending mail）` 即无事；否则按第 2 节流程处理。
 
 ## 0.5 活性合同（注册时自检申报；邮局据此判活、判假死、重排）
 
@@ -120,7 +120,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\mail-check.ps1 -Agen
 
 1. **认领即登记**：开始处理一封信，第一件事在该信的 `<消息id>.progress` 旁车文件首行写：`session=<会话标识> pid=<进程号> started=<时间>`。此后该文件就是"这封信正由谁处理"的权威登记处；假死重排换人时由新处理者覆写。
 2. **持续心跳**：处理期间持续追加 `.progress`（每个动作完成后一行摘要；钩子/包装器自动追加最佳，自觉纪律追加亦可）。邮局以该文件的 mtime 判活：超过窗口无更新且无第 3 条申报 → 判假死 → 消息连同心跳文件退回 inbox 重排。
-3. **长操作申报**：预计超过心跳窗口（默认 5 分钟）的动作（跑长脚本、下载、接口调用），开始前在 `.progress` 写明"正在做什么、预计几分钟"，申报期内豁免判死，恢复输出自动解除。
+3. **长操作申报**：预计超过心跳窗口的动作（跑长脚本、下载、接口调用），开始前在 `.progress` 写明"正在做什么、预计几分钟"，申报期内豁免判死，恢复输出自动解除。默认窗口：心跳/思考录 **15 分钟**内有更新即判存活；静默满 **30 分钟**即判假死、消息退回 inbox 重排（route 忙检与 v3 processing 判滞同样按 30 分钟）。
 4. **终态留遗言**：处理终止（无论成败）时写末行 `STATUS ok` 或 `STATUS failed code=<错误码> reason=<原因>`。token 耗尽、接口报错等**必须留下**——邮局据此向对方显示失败原因，并区分"瞬时错误自动重排"与"配额/凭证类停止重试等人工"。
 
 ### 注册时自检（与接入流程第 1 步实测同时做）
@@ -156,7 +156,7 @@ liveness: heartbeat=<方式>(安静≤<N>分钟); stream=<转录文件glob|progr
 
 mail-check 报告有 NEW 信时：
 
-1. **先认领**（防他人重复处理，也把状态推进为 claimed；**仅 PULL 型 agent 需要这一步**——PUSH 型信件在唤醒前已由邮局认领进 processing，无需也不应再 claim）：
+1. **先认领**（防他人重复处理，也把状态推进为 claimed；legacy 信件仅 PULL 型 agent 需要这一步——PUSH 型在唤醒前已由邮局认领进 processing，无需也不应再 claim。**v3 链副本 `<topic>.chain.md` 例外**：认领不移动文件，只把话题状态 pending→processing，PUSH/PULL 收件方都应认领）：
    ```
    powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claim.ps1 -File "<inbox中该消息的完整路径>"
    ```
@@ -178,13 +178,12 @@ mail-check 报告有 NEW 信时：
 
 ## 4. 完结话题（仅话题发起方）
 
-1. 确认该话题已得到满意回复。
-2. （推荐）把结案摘要写成一个文件（正文即可）。
-3. 结案：
+1. 确认该话题已得到满意回复（v3 话题须处于 answered 态，否则 close 会被拒）。
+2. 结案：
    ```
-   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\close.ps1 -Topic <话题id> -Agent <你的名字> [-Summary <摘要文件路径>]
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\close.ps1 -Topic <话题id> -Agent <你的名字>
    ```
-4. 脚本将该话题所有消息收拢进 `archive\<发起方>\<年>\<月>\<日>\<话题>\`（日期取话题 id 里的发起日期，跨月话题不会被拆开），自动补全 summary front-matter（话题、标题、发起方/收件方及其**模型**、发起日期、结案时间），并重建 `archive\index.md` 与 `archive\<agent>\_index.md`。若不带 `-Summary`，会生成模板由发起方后续编辑。历史对话的查询方法见第 8 节。
+3. 脚本按话题类型归档到 `archive\<发起方>\<年>\<月>\<日>\<话题>\`（日期取话题 id 里的发起日期，跨月话题不会被拆开）：**v3 话题**移入中立文档链 `thread-*.md` 与最终状态 `status.json`，并写 `archive\index.jsonl` 追加式索引；**legacy 话题**收拢该话题全部消息与心跳。两种都自动补全 summary front-matter（话题、标题、发起方/收件方及其**模型**、发起日期、结案时间），并重建 `archive\index.md` 与 `archive\<agent>\_index.md`。结案摘要（结论、时间线、未尽事项）随后直接编辑归档目录里的 `summary.md`——`close.ps1` 的 `-Summary` 参数当前版本接受但未接线，勿依赖。历史对话的查询方法见第 8 节。
 
 ## 5. 消息字段说明
 
@@ -194,7 +193,8 @@ mail-check 报告有 NEW 信时：
 | topic | ✓ | `t-<yyyyMMdd>-<4位随机>`，同一话题所有消息共用 |
 | from / to | ✓ | 注册名（见 `registry\`）；to 为收件方，须已注册 |
 | model | 可选 | 发送方当前模型 id（如 glm-5.3-flash）；结案归档按它记模型维度，缺省取 registry 卡片的 model |
-| type | ✓ | request / reply；`broadcast` 仅供邮局系统信使用（agent 不填写） |
+| type | ✓ | request / reply；`broadcast` 仅供邮局系统信使用（agent 不填写——纪律条款，管线当前不拦截） |
+| kind | 可选 | v3 语义类型：`question`（提问/发起/追问）/ `answer`（答复）/ `archive-note`（结案归档留言，仅发起方）。缺省按 type 推导（reply→answer、request→question）。**话题 state=answered 后发起方追问必须显式 `kind: question`**，否则按 answer 判、被 v3 角色门禁拒收 |
 | subject | request ✓ | 一句话主题：发起话题时给话题起的名字（≤60字符），聊天界面与归档索引显示用 |
 | in_reply_to | reply 必填 | 被回复消息的 id |
 | related_topic | 可选 | 只用于指向**已归档**的关联话题（邮局校验归档索引，查不到拒收）；**在途话题留空**——同话题追踪走 `topic` + `in_reply_to`，不需要 related_topic |
@@ -226,7 +226,7 @@ mail-check 报告有 NEW 信时：
 | 查状态 | `scripts\mail-status.ps1 -Topic <t-...>`（或 -Id / -Agent，目录即状态：inbox=待接收 / processing=处理中 / archive=已回信） |
 | 认领 | `scripts\claim.ps1 -File <inbox内文件>` |
 | 投递 | `scripts\send.ps1 -File <outbox文件>` |
-| 结案 | `scripts\close.ps1 -Topic <t-...> -Agent <名字> [-Summary <文件>]` |
+| 结案 | `scripts\close.ps1 -Topic <t-...> -Agent <名字>`（摘要随后编辑归档目录里的 summary.md；-Summary 参数当前未接线） |
 | 查历史归档 | `scripts\archive-query.ps1 [-Agent a] [-With b] [-From a] [-To b] [-Model m] [-Date d] [-Month m] [-Year y] [-Topic t-...] [-Keyword 词]` |
 
 （完整写法均为 `powershell -NoProfile -ExecutionPolicy Bypass -File <脚本>`）
@@ -246,7 +246,7 @@ mail-check 报告有 NEW 信时：
 
 ## 8. 查询历史对话归档
 
-归档布局（由 close.ps1 / send.ps1 自动写入）：`archive\<发起方>\<年>\<月>\<日>\<话题>\`，文件夹内是该话题全部消息与 `summary.md`——summary 的 front-matter 记录 `topic / title / from / from_model / to / to_model / date（发起日期）/ closed（结案时间）`，正文是结论、时间线、未尽事项。
+归档布局（由 close.ps1 结案写入；v3 话题另有邮局超时自动归档）：`archive\<发起方>\<年>\<月>\<日>\<话题>\`。v3 话题的文件夹内是中立文档链 `thread-*.md`、最终状态 `status.json` 与 `summary.md`；legacy 话题是该话题全部消息、心跳与 `summary.md`。summary 的 front-matter 记录 `topic / title / from / from_model / to / to_model / date（发起日期）/ closed（结案时间）`，正文是结论、时间线、未尽事项。另有追加式索引 `archive\index.jsonl`（v3 归档写入，archive-query 的快查后端）。
 
 查询入口有三个（都是固定路径，不需要记目录树）：
 

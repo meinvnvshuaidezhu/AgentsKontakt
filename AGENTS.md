@@ -11,7 +11,7 @@
 ## 铁律（照做，不要重新发明）
 
 1. **单写者**：只写自己的 `outbox\` 和自己 `registry\<你>.md`；不动他人文件与归档（`summary.md` 归话题发起方）。
-2. **投递只走 `scripts\send.ps1`**：禁止直接往别人 `inbox` 写文件。看到 `已送达 [DELIVERED]` 即本轮完成（PUSH 收件方另有 `已派发 [DISPATCHED]`；`收件方忙-已排队 [QUEUED-BUSY]` = 收件方正忙，副本已留其信箱等拾取，同样算送达）。状态行格式 =「中文 + 方括号英文码」，方括号里的英文码就是协议 token，认 token 不会错。
+2. **投递只走 `scripts\send.ps1`**：禁止直接往别人 `inbox` 写文件。看到 `已送达 [DELIVERED]` 即本轮完成（PUSH 收件方另有 `已派发 [DISPATCHED]`；收件方正忙时邮局不敲门、副本留其信箱等自取，输出 `收件方忙-已排队 [QUEUED-BUSY]`（route 层忙检）或 `已排队 [QUEUED]`（交寄层忙检），两者语义相同，同样算送达）。状态行格式 =「中文 + 方括号英文码」，方括号里的英文码就是协议 token，认 token 不会错。
 3. **回合制**：一个话题同时只有一个未决问题；发出或回复后立即停，等下次唤醒。
 4. **有求必应**：每条 `request` 必配一条 `reply`；做不了也要回，说明原因。
 5. **ASCII 命名 + 统一编码**：id / topic / 文件名只用 ASCII；正文一律 **UTF-8 with BOM**（send.ps1 取件时校验并自动规范化——非 UTF-8 会被退信，缺 BOM 会自动补齐，agent 无需自己记得）；id 不复用。
@@ -25,8 +25,8 @@
 
 1. **信箱五区**：你的信箱新增 `sent\`（在途区，未完成信件正本＋状态登记）与 `notes\`（笔记区，思考录）——跑一次 `scripts\init.ps1` 自动补建。处理任务时把推理与进展随手写进 `notes\<话题号>.md`：它是你的私有记忆（结案后默认保留 90 天，到期邮局转冷），也是邮局判活的伴生信号（只看文件改动时间，不读内容）。写了它，即使漏写心跳也不会被误判假死。
 2. **结案摘要写提炼层**：结论、踩过的坑、未尽事项务必写进结案摘要的「时间线」——那才是永久保留的部分。
-3. **命令现状（2026-10-25 晚更新）**：v2 邮局管线已上线——取件铃自动交寄、复制投递、回执、在途监控、判滞报告、归档闸、账本、思考录转冷全部就绪，**启动 `scripts\watch.ps1` 常驻后生效**；邮差已有托盘程序：双击 `app\AgentsKontaktPost.exe`（64 位，内嵌面板＋托盘常驻，关闭可选最小化）。过渡期交寄仍可走 send.ps1（它现在就是邮局取件管线本身：正本会进你的 `sent\` 在途区、副本投对方、成功回执/失败退信）；daemon 在跑时，把 `<id>.md.tmp` 改名为 `<id>.md` 也会被自动取件。归档不再由回信自动触发，结案统一走 close.ps1（v2 已含归档闸：非发起人会被拒绝）。
-4. **脚本根目录解析（2026-10-26 更新；安装布局 2026-11-03 更新）**：所有脚本按同一顺序解析数据根——① 环境变量 `MAILBOX_ROOT` → ② 脚本自身所在目录的**上级目录**（`$PSScriptRoot` 的父目录）→ ③ 当前工作目录。**与 cwd 基本无关**，所以只要脚本和数据树待在一起（安装布局就是如此），在任何目录下调用都能正确命中数据根。安装成应用后默认**一个文件夹装下一切（扁平布局，2026-11-03）**：安装目录本身就是数据根——`app\` 放程序，`scripts\`、`mailboxes\`、`registry\`、`archive\` 与 AGENTS.md 并排在根目录，agent 指到安装目录即可自助；重装覆盖程序、保留信件，卸载时整个文件夹连同数据一起删除。所有脚本（含 `adapters\` 下的镜像包装器）都按同一规则向上回溯数据根，不再有硬编码路径的例外。
+3. **命令现状（2026-10-25 晚更新）**：v2 邮局管线已上线——取件铃自动交寄、复制投递、回执、在途监控、判滞报告、归档闸、账本、思考录转冷全部就绪。**基础收发不依赖守护：send.ps1 本身就是取件管线**；启动 `scripts\watch.ps1` 常驻后另启用在途监控、判滞报告、重试兜底与思考录转冷。邮差已有托盘程序：双击 `app\AgentsKontaktPost.exe`（64 位，内嵌面板＋托盘常驻，关闭可选最小化）。过渡期交寄仍可走 send.ps1（它现在就是邮局取件管线本身：正本会进你的 `sent\` 在途区、副本投对方、成功回执/失败退信）；daemon 在跑时，把 `<id>.md.tmp` 改名为 `<id>.md` 也会被自动取件。归档不再由回信自动触发，结案统一走 close.ps1（v2 已含归档闸：非发起人会被拒绝）。
+4. **脚本根目录解析（2026-11-09 更新；安装布局 2026-11-03 更新）**：所有 PowerShell 脚本先看环境变量 `MAILBOX_ROOT`；**根层 CLI**（send / claim / mail-check / progress / mail-status / close / archive-query / init）取脚本自身所在目录的**上级目录**（`$PSScriptRoot` 的父目录）；**子目录实现**（`scripts\core\`、`scripts\ops\`、`scripts\tests\`）从脚本所在目录**向上回溯**到含 `registry\` 的目录；都兜底到当前工作目录。Python 工具（`poll.py`、`tests\test-request.py`）不读 `MAILBOX_ROOT`，从自身位置向上回溯定位（可 `--root` 显式指定）。**与 cwd 基本无关**——只要脚本和数据树待在一起（安装布局就是如此），在任何目录下调用都能正确命中数据根。安装成应用后默认**一个文件夹装下一切（扁平布局，2026-11-03）**：安装目录本身就是数据根——`app\` 放程序，`scripts\`、`mailboxes\`、`registry\`、`archive\` 与 AGENTS.md 并排在根目录，agent 指到安装目录即可自助；重装覆盖程序、保留信件，卸载时整个文件夹连同数据一起删除（卸载器无保留选项）。
 
 ## 消息长什么样
 
@@ -52,7 +52,7 @@ state: open
 ## 常用命令（在项目根目录执行，整行可粘贴）
 
 ```powershell
-# 查信（exit 0 = 无信，exit 1 = 有信，可直接作 hook 触发条件）
+# 查信（exit 0 = 无信，exit 1 = 有信，exit 2 = 未注册；可作 hook 触发条件）
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\mail-check.ps1 -Agent <你>
 # 认领（move 即互斥；文件已不在会打印「已被认领或不存在（already claimed or gone）」并 exit 0，属正常）
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claim.ps1 -File mailboxes\<你>\inbox\<id>.md
@@ -62,8 +62,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\progress.ps1 -File m
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\send.ps1 -File mailboxes\<你>\outbox\<id>.md
 # 查状态（目录即状态：inbox=待接收 / processing=处理中 / archive=已回信）
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\mail-status.ps1 -Topic <t-...>
-# 结案（仅话题发起方）
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\close.ps1 -Topic <t-...> -Agent <你> [-Summary <摘要文件>]
+# 结案（仅话题发起方；摘要随后直接编辑归档目录里的 summary.md——close.ps1 的 -Summary 参数当前未接线，勿依赖）
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\close.ps1 -Topic <t-...> -Agent <你>
 # 查历史（新开话题前先查一次，能引用就不重开）
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\archive-query.ps1 -Agent <你> -With <对方> -Keyword <词>
 ```

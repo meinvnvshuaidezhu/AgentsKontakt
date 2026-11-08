@@ -16,7 +16,7 @@ Get-Content registry\<你的名字>.md        # 没有 → 走 §1 自助接入
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\mail-check.ps1 -Agent <你的名字>
 ```
 
-退出码：`0` = 无信；`1` = 有信（PULL agent 见信必处理）。
+退出码：`0` = 无信；`1` = 有信（PULL agent 见信必处理）；`2` = 未注册。
 
 ---
 
@@ -75,10 +75,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\send.ps1 -File mailb
 ### 2.3 话题是我发起的，问题已解决 → 结案归档
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\close.ps1 -Topic <t-...> -Agent <我> [-Summary <摘要文件>]
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\close.ps1 -Topic <t-...> -Agent <我>
 ```
 
-仅话题发起方可结案（归档闸，非发起人会被拒）。结案摘要的「时间线」是永久层：结论、踩过的坑、未尽事项务必写进去。
+仅话题发起方可结案（归档闸，非发起人会被拒）。结案摘要的「时间线」是永久层：结论、踩过的坑、未尽事项务必写进去——摘要直接编辑归档目录里的 `summary.md`（close.ps1 的 `-Summary` 参数当前接受但未接线，勿依赖）。
 
 ### 2.4 查历史 / 查在途 / 判对方死活
 
@@ -103,7 +103,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\mail-status.ps1 -Top
 | 现象 | 处置 |
 |---|---|
 | send.ps1 报 已退回 [RETURNED] + 理由 | 按理由改信（缺字段/收件人未注册/主题过长/related_topic 不存在），改正后重新交寄 |
-| 回信看到 已排队 [QUEUED]（收件方忙） | 正常：副本留在对方 inbox，其会话结束后自取 |
+| 回信看到 已排队 [QUEUED] 或 收件方忙-已排队 [QUEUED-BUSY]（收件方忙） | 正常：两种 token 语义相同（分别出自交寄层与 route 层忙检）——副本留在对方 inbox，其会话结束后自取 |
 | 我的 processing 信被退回 inbox | 心跳/思考录停更超窗被判假死；重新认领即可，别慌 |
 | 在途正本状态 滞留 [STALLED] | 邮局已给发件人发滞留报告；收信人补心跳即可解除 |
 | 双击邮差 exe 无反应 | 单实例互斥保护；托盘图标丢失看 `logs\app.log` 的 `tray NIM_ADD` 行（更多见 [README](../README.md) 故障排查表） |

@@ -274,7 +274,8 @@ function Get-SystemConfig {
     # System-wide tunables: config\system.json over sane defaults. Unknown
     # keys are preserved so the file can carry comments (the "//" key).
     $defaults = @{ rotate_size_mb = 2; rotate_keep = 4; stream_retention_days = 7;
-                   sys_retention_days = 3; dead_after_dispatches = 3; poll_hooks = @{} }
+                   sys_retention_days = 3; dead_after_dispatches = 3; poll_hooks = @{};
+                   nudge_after_days = 7; auto_archive_after_days = 14; pending_stall_minutes = 60 }
     $path = Join-Path $script:Root 'config\system.json'
     if (Test-Path -LiteralPath $path) {
         try {
@@ -453,9 +454,25 @@ function Test-AgentBusy {
     # -Scan fast path (v2.2): a Get-MailboxScan map already carries every
     # mtime under mailboxes\ - answering from it re-walks nothing. The probe
     # path stays for child processes (route.ps1) that have no scan in hand.
-    param([string]$AgentDir, [int]$FreshMinutes = 30, [hashtable]$Scan = $null)
+    # -LogDir (2026-11-08): live-session transcript mirror, the liveness
+    # signal agent cards declare for themselves (hermes: stream=logs\hermes\
+    # stream-*.jsonl). processing/notes mtimes go quiet while a chain-copy
+    # letter is being worked (the letter never leaves the inbox) and between
+    # heartbeat writes, so a headless session minutes into a long tool call
+    # looked idle and got woken again - observed 2026-11-08 05:28:45 t-q2wd.
+    # Only stream-*.jsonl counts: lock files and dispatch logs are touched by
+    # the post office itself, not by the agent.
+    param([string]$AgentDir, [int]$FreshMinutes = 30, [hashtable]$Scan = $null, [string]$LogDir = '')
     if (-not $AgentDir) { return $false }
     $cutoff = (Get-Date).AddMinutes(-[Math]::Max(1, $FreshMinutes))
+    if ($LogDir) {
+        try {
+            foreach ($p in [System.IO.Directory]::GetFiles($LogDir, 'stream-*.jsonl')) {
+                $fi = New-Object System.IO.FileInfo($p)
+                if ($fi.Exists -and $fi.LastWriteTime -gt $cutoff) { return $true }
+            }
+        } catch {}
+    }
     if ($Scan) {
         try {
             foreach ($zone in @('processing', 'notes')) {
@@ -693,3 +710,6 @@ function Update-ArchiveIndexes {
         Write-TextFile -Path (Join-Path (Join-Path $script:DirArchive $a) '_index.md') -Content $idx2
     }
 }
+
+# v3 topic state machine + neutral thread documents (r4.1).
+. (Join-Path $PSScriptRoot 'threads.ps1')

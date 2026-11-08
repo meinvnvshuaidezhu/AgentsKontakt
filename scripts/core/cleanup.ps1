@@ -16,6 +16,7 @@ if (-not $Root) {
     }
 }
 . (Join-Path $PSScriptRoot 'common.ps1')
+Initialize-Tree   # self-heal data dirs: a fresh root (or a pruned one) must not kill the sweep
 
 $now = Get-Date
 
@@ -149,6 +150,47 @@ foreach ($d in (Get-ChildItem -LiteralPath $script:DirMailboxes -Directory -Erro
             continue
         }
         $side = Join-Path $proc ([System.IO.Path]::GetFileNameWithoutExtension($f.Name) + '.progress')
+        # ---- A4 (pdup-S1, t-20261107-pdup; workbuddy-verified conditions) ----
+        # The sidecar STATUS line is the dispatch terminal state the PROTOCOL
+        # promises ("邮局据此区分瞬时错误自动重排与配额类停止重试") - cleanup
+        # never read it, so an ANSWERED letter cycled requeue -> claim -> wake
+        # three times and cooked a fake RETURNED (2026-11-06 night, hermes
+        # k7m2: three full re-reviews, three contradictory replies).
+        #   - Only "^STATUS ok" is terminal (real value: "STATUS ok via exec" -
+        #     prefix match, not -eq). "STATUS failed" is a LAUNCH failure and
+        #     must keep the normal requeue path, or a failed dispatch would sit
+        #     in processing forever.
+        #   - PULL recipients (wake: TODO) never get a STATUS line: their claim
+        #     is their own mail-check pickup, so a requeue would only re-show
+        #     the letter in their inbox (and steal it back mid-session - the
+        #     2026-11-08 zcode reclaim loop). Skip those too. Known limitation
+        #     (documented in the A4 letter): a PULL agent that dies mid-work
+        #     leaves the letter in processing with no requeue recovery - the
+        #     long-term fix is the single-letter ack (pdup-S3, phase B).
+        # Log-once via a routed flag: a terminal letter hits this branch on
+        # EVERY sweep forever, and per-sweep logging would drown system.log.
+        $stLine = ''
+        if (Test-Path -LiteralPath $side) {
+            foreach ($ln in [System.IO.File]::ReadAllLines($side)) {
+                if ($ln -match '^STATUS') { $stLine = $ln }
+            }
+        }
+        $pullRecipient = $false
+        $cardPath4 = Join-Path $script:DirRegistry ($d.Name + '.md')
+        if (Test-Path -LiteralPath $cardPath4) {
+            $w4 = [string](Read-FrontMatter -Path $cardPath4)['wake']
+            if (-not $w4 -or $w4 -match 'TODO') { $pullRecipient = $true }
+        }
+        if (($stLine -match '^STATUS ok') -or $pullRecipient) {
+            $flagKey = [System.IO.Path]::GetFileNameWithoutExtension($f.Name) + '.terminal'
+            if (-not (Test-RouteFlag -MessageId $flagKey)) {
+                Set-RouteFlag -MessageId $flagKey
+                $why = if ($stLine -match '^STATUS ok') { 'sidecar STATUS ok' } else { 'PULL recipient (wake TODO)' }
+                Write-SystemLog ('TERMINAL skip requeue (' + $why + '): ' + $d.Name + '\' + $f.Name)
+                Write-Journal -Agent $d.Name -Action 'STATE' -Detail ('terminal skip requeue (' + $why + '): ' + $f.Name)
+            }
+            continue
+        }
         $alive = $false
         $aliveVia = ''
         if (Test-Path -LiteralPath $side) {
@@ -235,3 +277,119 @@ foreach ($d in (Get-ChildItem -LiteralPath $script:DirMailboxes -Directory -Erro
         Write-SystemLog ('thinking record cold-stored (closed ' + $closed.ToString('yyyy-MM-dd') + ', keep ' + $keepDays + 'd): ' + $agent + '\' + $f.Name)
     }
 }
+
+
+# ---- v3 topic state machine sweep (r4.1 §5) ----
+# Walks post\threads\<topic>\status.json and drives every time-based rule:
+#   pending   > 5min since delivery        -> one-shot "not picked up" note
+#   pending   > pending_stall_minutes      -> one-shot "close or redirect" nudge
+#   processing + heartbeat AND notes dead  -> demote to pending (+ sys mail both)
+#   answered  >= nudge_after_days          -> one-shot three-party nudge
+#   answered  >= auto_archive_after_days   -> auto archive (post office closes)
+$threadsRoot = Join-Path $script:DirPost 'threads'
+$nudgeDays   = [double]$cfg['nudge_after_days']
+$autoDays    = [double]$cfg['auto_archive_after_days']
+$pendStall   = [int]$cfg['pending_stall_minutes']
+if (Test-Path -LiteralPath $threadsRoot) {
+    foreach ($sd in (Get-ChildItem -LiteralPath $threadsRoot -Directory -ErrorAction SilentlyContinue)) {
+        $sp = Join-Path $sd.FullName 'status.json'
+        if (-not (Test-Path -LiteralPath $sp)) { continue }
+        $st = $null
+        try { $st = [System.IO.File]::ReadAllText($sp) | ConvertFrom-Json } catch { continue }
+        $t = [string]$st.topic; $state = [string]$st.state
+        $from = [string]$st.from; $to = [string]$st.to
+        $nowStamp = $now.ToString('yyyy-MM-ddTHH:mm:sszzz')
+        if ($state -eq 'pending') {
+            $delivered = $null
+            try { $delivered = [datetime]::Parse([string]$st.delivered_at) } catch {}
+            if ($delivered) {
+                $ageMin = ($now - $delivered).TotalMinutes
+                if ($ageMin -ge 5 -and -not $st.pickup_nudged) {
+                    $body = 'Topic ' + $t + ' is still pending after ' + [int]$ageMin + ' minutes (' + $to + ' has not claimed it). Informational note only - the copy waits in their inbox.'
+                    $null = Write-SystemMail -To $from -Topic $t -Subject ('PENDING ' + $t) -Body $body
+                    $null = Set-TopicStatus -Topic $t -Fields @{ pickup_nudged = $nowStamp }
+                    Write-SystemLog ('v3: pending pickup nudge sent: ' + $t)
+                }
+                if ($ageMin -ge $pendStall -and -not $st.redirect_nudged) {
+                    $body = 'Topic ' + $t + ' has been pending for ' + [int]$ageMin + ' minutes and ' + $to + ' has not claimed it. Options: close the topic, or redirect it: send.ps1 -Redirect -Topic ' + $t + ' -RedirectTo <agent>'
+                    $null = Write-SystemMail -To $from -Topic $t -Subject ('PENDING-STALL ' + $t) -Body $body
+                    $null = Set-TopicStatus -Topic $t -Fields @{ redirect_nudged = $nowStamp }
+                    Write-Journal -Agent 'postmaster' -Action 'STATE' -Detail ($t + ' pending-stall nudge (' + [int]$ageMin + 'min)')
+                }
+            }
+        }
+        if ($state -eq 'processing') {
+            $hb = $null
+            try { $hb = [datetime]::Parse([string]$st.last_heartbeat) } catch {}
+            $hbFresh = $false
+            if ($hb -and (($now - $hb).TotalMinutes -lt $StaleMinutes)) { $hbFresh = $true }
+            if (-not $hbFresh) {
+                $notesDir = Join-Path (Join-Path $script:DirMailboxes $to) 'notes'
+                if (Test-Path -LiteralPath $notesDir) {
+                    foreach ($nf in [System.IO.Directory]::GetFiles($notesDir)) {
+                        $fi = New-Object System.IO.FileInfo($nf)
+                        if ($fi.LastWriteTime -gt $now.AddMinutes(-$StaleMinutes)) { $hbFresh = $true; break }
+                    }
+                }
+            }
+            if (-not $hbFresh) {
+                $null = Set-TopicStatus -Topic $t -Fields @{ state = 'pending'; state_updated_by = 'postmaster'; state_updated_at = $nowStamp }
+                Write-Journal -Agent 'postmaster' -Action 'STATE' -Detail ($t + ' demoted processing->pending (no heartbeat, no notes activity for ' + $StaleMinutes + 'min)')
+                $body = 'Topic ' + $t + ' was demoted back to pending: the responder stopped heartbeating and shows no notes activity for ' + $StaleMinutes + ' minutes. The chain copy stays in their inbox for re-claim.'
+                foreach ($a in @($from, $to)) { if ($a) { $null = Write-SystemMail -To $a -Topic $t -Subject ('DEMOTED ' + $t) -Body $body } }
+                Write-SystemLog ('v3: stalled processing demoted to pending: ' + $t)
+            }
+        }
+        if ($state -eq 'answered') {
+            $ansAt = $null
+            try { $ansAt = [datetime]::Parse([string]$st.state_updated_at) } catch {}
+            if ($ansAt) {
+                $days = ($now - $ansAt).TotalDays
+                if ($days -ge $nudgeDays -and -not $st.nudged) {
+                    $body = 'Topic ' + $t + ' has been answered for ' + [int]$days + ' days without the initiator archiving it (owner cc). It will auto-archive at ' + [int]$autoDays + ' days after answered (config: auto_archive_after_days).'
+                    foreach ($a in @($from, $to)) { if ($a) { $null = Write-SystemMail -To $a -Topic $t -Subject ('NUDGE ' + $t) -Body $body } }
+                    $null = Set-TopicStatus -Topic $t -Fields @{ nudged = $nowStamp }
+                    Write-SystemLog ('v3: answered-age nudge sent (owner cc): ' + $t)
+                }
+                if ($days -ge $autoDays) {
+                    $dest = Invoke-TopicArchive -Topic $t -ClosedBy 'postmaster'
+                    foreach ($a in @($from, $to)) {
+                        if ($a) {
+                            $null = Clear-ThreadCopies -Topic $t -Agent $a
+                            $null = Write-SystemMail -To $a -Topic $t -Subject ('ARCHIVED ' + $t) -Body ('Topic ' + $t + ' was auto-archived (answered for ' + [int]$days + ' days with no initiator action). Archive: ' + $dest)
+                        }
+                    }
+                    Write-SystemLog ('v3: auto-archived after ' + [int]$days + 'd answered: ' + $t)
+                    Update-Dashboard
+                }
+            }
+        }
+    }
+}
+
+
+# ---- v3 orphan trash sweep (n5w8 R1/R3) ----
+# R1: the full orphan scan is throttled (orphan_scan_interval_minutes, default
+# 60, gate = post\trash\.lastscan mtime) - it walks every thread dir and the
+# archive tree and must not eat the sweep's CPU budget. The sweep cpu ms
+# accounting keeps its existing shape: the orphan pass runs as a child script.
+# R3: expiry purge is NOT throttled - a one-shot expires_at compare, and the
+# 7-day promise must not slip by hours.
+$trashDir = Join-Path $script:DirPost 'trash'
+if (-not (Test-Path -LiteralPath $trashDir)) { New-Item -ItemType Directory -Path $trashDir -Force | Out-Null }
+$orphanScan = Join-Path $PSScriptRoot '..\orphan-scan.ps1'
+if (Test-Path -LiteralPath $orphanScan) {
+    $interval = 60
+    try { if ([string]$cfg['orphan_scan_interval_minutes'] -match '^\d+$') { $interval = [int]$cfg['orphan_scan_interval_minutes'] } } catch {}
+    $lastscan = Join-Path $trashDir '.lastscan'
+    $due = $true
+    if (Test-Path -LiteralPath $lastscan) {
+        if (((Get-Date) - (Get-Item -LiteralPath $lastscan).LastWriteTime).TotalMinutes -lt $interval) { $due = $false }
+    }
+    if ($due) {
+        $null = & powershell -NoProfile -ExecutionPolicy Bypass -File $orphanScan -MoveToTrash -Root $script:Root 2>&1
+        Write-SystemLog ('v3: orphan scan ran (throttle window ' + $interval + 'min)')   # .lastscan stamped by the scan itself
+    }
+    $null = & powershell -NoProfile -ExecutionPolicy Bypass -File $orphanScan -Purge -Root $script:Root 2>&1
+}
+

@@ -83,20 +83,47 @@ if ([string]::IsNullOrWhiteSpace($wake) -or $wake -match 'TODO') {
 $chain = @(($wake -split '\|') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 
 $inboxDir = Split-Path $File -Parent
+# Chain copies (v3, <topic>.chain.md) are overwrite-style inbox views: they
+# never move to processing, so the claim move is no mutex for them. Compute
+# this before the guards - the chain-dispatch lock below depends on it.
+$isChain = ($File -match '\.chain\.md$')
 
 # --- dispatch guards (claim-only / -NoDispatch runs skip them) --------------
 # Two livelock breakers, both evaluated BEFORE the claim move so a skipped
 # letter costs zero state changes:
 #   1. attempts exhausted -> return the letter to its sender (master stamped
-#      RETURNED + bounce mail). Without a bound, a letter whose recipient
-#      never answers cycles requeue -> claim -> wake forever (observed
-#      2026-10-25..29: five letters, ~2700 wasted CLI sessions, a full
-#      headless session every ~20 minutes).
+#      RETURNED + bounce mail) - but only when the recipient is genuinely
+#      quiet: the liveness gate inside consults processing/notes/stream
+#      activity first (2026-11-08 t-q2wd lesson). Without a bound, a letter
+#      whose recipient never answers cycles requeue -> claim -> wake forever
+#      (observed 2026-10-25..29: five letters, ~2700 wasted CLI sessions, a
+#      full headless session every ~20 minutes).
 #   2. recipient busy -> leave the letter in the inbox, wake nobody. A
 #      single-session CLI rejects a second wake within seconds anyway, so
 #      each attempt against a busy peer burned a watcher + CLI spawn per
 #      sweep. The sweep re-routes once the session goes quiet.
 if (-not $NoDispatch) {
+    # 2026-11-08 chain-dispatch lock: send.ps1's immediate notify and the watch
+    # sweep can both route the same chain arrival within the same second.
+    # Regular letters are serialized by the claim move; chain copies are not
+    # claim-able, so both routers dispatched. Observed 2026-11-08 05:26:50
+    # t-q2wd: two CLAIM lines, two wake spawns 1s apart, and TWO DISPATCHED
+    # lines cooked into the attempts counter by a single round - which then
+    # hit the exhaustion bound two rounds early. The per-message lock file is
+    # taken with an atomic CreateNew (losers exit 0); it self-expires in 15s
+    # so a crashed router can never wedge the letter.
+    if ($isChain) {
+        $chainLock = Join-Path $script:DirRouted ([System.IO.Path]::GetFileNameWithoutExtension($File) + '.chainlock')
+        while ($true) {
+            try { $lkFs = [System.IO.File]::Open($chainLock, 'CreateNew', 'ReadWrite', 'None'); $lkFs.Close(); break }
+            catch {
+                $lkFi = $null
+                try { $lkFi = Get-Item -LiteralPath $chainLock -ErrorAction Stop } catch { }
+                if ($lkFi -and $lkFi.LastWriteTime -gt (Get-Date).AddSeconds(-15)) { exit 0 }   # concurrent router owns this dispatch
+                try { Remove-Item -LiteralPath $chainLock -Force -ErrorAction Stop } catch { exit 0 }   # lost the stale-lock takeover race
+            }
+        }
+    }
     $side0 = [System.IO.Path]::ChangeExtension($File, '.progress')
     $attempts = 0
     if (Test-Path -LiteralPath $side0) {
@@ -112,14 +139,95 @@ if (-not $NoDispatch) {
         if (-not $mid0) { $mid0 = [System.IO.Path]::GetFileNameWithoutExtension($File) }
         $from0 = [string]$fm0['from']
         $topic0 = [string]$fm0['topic']
-        Remove-Item -LiteralPath $File -Force -ErrorAction SilentlyContinue
+        # ---- A5 (pdup core fix, t-20261107-pdup; workbuddy放行条件 1/2) ----
+        # Journal REPLIED reconciliation BEFORE condemning. send.ps1 stamps
+        #   REPLIED | <original id> <- <reply id>
+        # into the ORIGINAL SENDER's journal: send.ps1's -Agent $to is the reply
+        # recipient = the original sender, and the arrow points original <- reply
+        # (the original id sits on the LEFT - workbuddy's实log format:
+        # "2026-11-06 06:49:54 | REPLIED   | msg-...-iygr <- msg-...-m8d2").
+        # An already-answered letter must never be bounced: flip the master to
+        # REPLIED, quarantine the stale copy, leave an info mail instead of a
+        # fake "3 wakes, no answer" RETURNED (observed 2026-11-06 night: hermes
+        # re-reviewed one letter three times, then the bounce fired on round 4).
+        # Double insurance only: the line exists just when the reply carried a
+        # resolvable in_reply_to - the A4 terminal gate and the v3 reply-clears-
+        # copies rule remain the primary defenses.
+        if ($from0) {
+            $journal0 = Join-Path (Join-Path $script:DirLogs $from0) 'journal.log'
+            if (Test-Path -LiteralPath $journal0) {
+                $repliedHit = Select-String -LiteralPath $journal0 -Pattern ('REPLIED\s+\|\s+' + [regex]::Escape($mid0) + '\s+<-') -ErrorAction SilentlyContinue
+                if ($repliedHit) {
+                    $trashDir5 = Join-Path $script:DirPost 'trash'
+                    try { Move-AtomicUnique -File $File -DestDir $trashDir5 | Out-Null } catch { }
+                    if (Test-Path -LiteralPath $side0) { try { Move-AtomicUnique -File $side0 -DestDir $trashDir5 | Out-Null } catch { } }
+                    if (Test-Path -LiteralPath $File) {
+                        # copy locked (reader/AV): retry on the next sweep
+                        Write-SystemLog ('route: answered-letter copy could not be quarantined (locked?), retrying later: ' + $File)
+                        exit 0
+                    }
+                    $master5 = Join-Path (Join-Path (Join-Path $script:DirMailboxes $from0) 'sent') ($mid0 + '.md')
+                    if (Test-Path -LiteralPath $master5) {
+                        Set-MailStatus -MessagePath $master5 -Status 'REPLIED' -Reason ('answered before dispatch quota exhausted (' + $attempts + ' wakes)') | Out-Null
+                    }
+                    Write-Journal -Agent $agent -Action 'WARN' -Detail ($mid0 + ' | already answered (journal REPLIED hit) - master flipped REPLIED, no bounce')
+                    Write-SystemLog ('route: ' + $mid0 + ' was answered before quota exhausted - no RETURNED, master REPLIED')
+                    $ackBody = (Get-AkLines 'route.answered-ack.body' 'This mail was answered before its dispatch quota ran out - no bounce was issued.' '' 'id: {0}' 'recipient: {1}' 'wake attempts at reconciliation: {2}' '' 'The stale recipient copy was quarantined to post\trash; your master is stamped REPLIED.' |
+                        ForEach-Object { $_ -f $mid0, $agent, $attempts }) -join "`r`n"
+                    $null = Write-SystemMail -To $from0 -Topic $topic0 -Subject ('REPLIED-ACK ' + $mid0) -Body $ackBody
+                    Write-Host (Get-AkText 'route.answered-ack' 'REPLIED-ACK {0} - answered before quota exhausted, no bounce' $mid0)
+                    exit 0
+                }
+            }
+        }
+        # 2026-11-08 liveness gate (PROTOCOL 0 three-check discipline: doorbell,
+        # heartbeat, retries). The wake count only says the doorbell failed -
+        # not that nobody is home. Condemning on wake count alone returned the
+        # letter of a demonstrably live worker: observed 2026-11-08 05:33:49
+        # t-q2wd, "3 wakes, no answer" against a 4-minute-old heartbeat and a
+        # live stream mirror, and the recipient copy was deleted out from under
+        # the working session. A fresh-activity recipient defers the return;
+        # the sweep retries, and only a quiet recipient is actually returned.
+        if (Test-AgentBusy -AgentDir (Split-Path $inboxDir -Parent) -FreshMinutes $BusyMinutes -LogDir (Join-Path $script:DirLogs $agent)) {
+            Write-Journal -Agent $agent -Action 'WARN' -Detail ($mid0 + ' | attempts exhausted (' + $attempts + ') but recipient active - return deferred')
+            Write-Host (Get-AkText 'route.exhausted-busy' 'DEFERRED {0} - attempts exhausted but recipient active, return deferred' $mid0)
+            exit 0
+        }
+        # 2026-11-08 stale-answer check: a chain copy lingers in the inbox until
+        # the topic is archived, so an answered topic still looks like an
+        # unanswered letter here. If the recipient already sent a reply on this
+        # topic, quarantine the stale copy quietly - no RETURNED bounce.
+        $replied0 = $false
+        if ($topic0) {
+            try {
+                $sentDir0 = Join-Path (Join-Path $script:DirMailboxes $agent) 'sent'
+                $replied0 = @(Get-ChildItem -LiteralPath $sentDir0 -Filter '*.md' -File -ErrorAction SilentlyContinue |
+                    Where-Object {
+                        $fmR = Read-FrontMatter -Path $_.FullName
+                        ([string]$fmR['topic'] -eq $topic0) -and ([string]$fmR['type'] -eq 'reply')
+                    }).Count -gt 0
+            } catch { }
+        }
+        if ($replied0) {
+            $trashDir0 = Join-Path $script:DirPost 'trash'
+            try { Move-AtomicUnique -File $File -DestDir $trashDir0 | Out-Null } catch { }
+            if (Test-Path -LiteralPath $side0) { try { Move-AtomicUnique -File $side0 -DestDir $trashDir0 | Out-Null } catch { } }
+            Write-Journal -Agent $agent -Action 'WARN' -Detail ($mid0 + ' | topic already answered by recipient - stale copy quarantined to post\trash')
+            Write-SystemLog ('route: ' + $mid0 + ' stale copy of answered topic quarantined')
+            exit 0
+        }
+        # 2026-11-08: quarantine instead of hard delete - a misjudged return
+        # cost hermes the working copy of t-q2wd (recoverable only via
+        # post\manifest). Condemned copies and sidecars go to post\trash.
+        $trashDir0 = Join-Path $script:DirPost 'trash'
+        try { Move-AtomicUnique -File $File -DestDir $trashDir0 | Out-Null } catch { }
         if (Test-Path -LiteralPath $File) {
             # Copy is locked (reader/AV): returning now would bounce on every
             # later sweep too. Retry the removal first; bounce once it is gone.
-            Write-SystemLog ('route: exhausted copy could not be removed (locked?), retrying later: ' + $File)
+            Write-SystemLog ('route: exhausted copy could not be quarantined (locked?), retrying later: ' + $File)
             exit 0
         }
-        if (Test-Path -LiteralPath $side0) { Remove-Item -LiteralPath $side0 -Force -ErrorAction SilentlyContinue }
+        if (Test-Path -LiteralPath $side0) { try { Move-AtomicUnique -File $side0 -DestDir $trashDir0 | Out-Null } catch { } }
         if ($mid0 -like 'sys-*') {
             # service mail has no actionable sender mailbox: drop, log only
             Write-SystemLog ('route: sys mail dropped after ' + $attempts + ' dispatch attempts: ' + $mid0)
@@ -142,7 +250,7 @@ if (-not $NoDispatch) {
         Write-Host (Get-AkText 'route.returned-exhausted' 'RETURNED {0} - attempts exhausted ({1})' $mid0 $attempts)
         exit 0
     }
-    if (Test-AgentBusy -AgentDir (Split-Path $inboxDir -Parent) -FreshMinutes $BusyMinutes) {
+    if (Test-AgentBusy -AgentDir (Split-Path $inboxDir -Parent) -FreshMinutes $BusyMinutes -LogDir (Join-Path $script:DirLogs $agent)) {
         $fm0 = Read-FrontMatter -Path $File
         $mid0 = [string]$fm0['id']
         if (-not $mid0) { $mid0 = [System.IO.Path]::GetFileNameWithoutExtension($File) }
@@ -156,14 +264,22 @@ if (-not $NoDispatch) {
 }
 
 # Claim first: the move is the mutex, so each message rings the doorbell once.
+# v3 chain copies (<topic>.chain.md) are overwrite-style views, NOT claim-able
+# letters: they stay in the inbox (no physical move), ring the doorbell in
+# place, and carry a sidecar only for exec terminal-state tracking. A failed
+# notification leaves them where they already are (PULL-equivalent).
 $procDir  = Join-Path (Split-Path $inboxDir -Parent) 'processing'
-try {
-    $claimed = Move-Atomic -File $File -DestDir $procDir
-} catch {
-    Write-SystemLog ('route claim failed: ' + $File + ' :: ' + $_.Exception.Message)
-    exit 1
+$claimed = $File
+if (-not $isChain) {
+    try {
+        $claimed = Move-Atomic -File $File -DestDir $procDir
+    } catch {
+        Write-SystemLog ('route claim failed: ' + $File + ' :: ' + $_.Exception.Message)
+        exit 1
+    }
 }
 
+if (-not $isChain) {
 # Carry a requeued dispatch sidecar along with the letter. The claim used to
 # move only the .md, orphaning inbox\<id>.progress on every requeue cycle;
 # carrying it keeps the DISPATCHED-line count intact - that count is the
@@ -174,11 +290,20 @@ if (Test-Path -LiteralPath $sideIn) {
         Write-SystemLog ('route sidecar carry failed for ' + $File + ' :: ' + $_.Exception.Message)
     }
 }
+}
 
-# initial heartbeat: the other side (and cleanup) can see dispatch happened
-$side = Join-Path $procDir ([System.IO.Path]::GetFileNameWithoutExtension($claimed) + '.progress')
+# initial heartbeat: the other side (and cleanup) can see dispatch happened.
+# Chain copies get a sidecar beside the copy itself (exec watcher terminal
+# states); their authoritative liveness lives in status.json.last_heartbeat.
+$side = Join-Path (Split-Path $claimed -Parent) ([System.IO.Path]::GetFileNameWithoutExtension($claimed) + '.progress')
+if (-not $isChain) {
 $hb = '[' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '] DISPATCHED (post office notifying via registered channels)'
 [System.IO.File]::AppendAllText($side, $hb + "`r`n", $script:UTF8Bom)
+} else {
+$hb = '[' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '] DISPATCHED (post office notifying via registered channels)'
+if (-not (Test-Path -LiteralPath $side)) { [System.IO.File]::WriteAllText($side, '', $script:UTF8Bom) }
+[System.IO.File]::AppendAllText($side, $hb + "`r`n", $script:UTF8Bom)
+}
 
 # Byte offset of the sidecar as this dispatch begins. A requeued message
 # carries its sidecar back to the inbox, stale STATUS lines included; only
@@ -392,9 +517,13 @@ if ($ok) {
         $reason = ($reason -replace '[\r\n]+', ' ' -replace '\s+', ' ').Trim()
         Add-ProgressStatus ('STATUS failed code=' + $code + ' reason=' + $reason)
     }
-    Move-Atomic -File $claimed -DestDir $inboxDir | Out-Null
-    $sidePath = Join-Path $procDir ([System.IO.Path]::GetFileNameWithoutExtension($claimed) + '.progress')
-    if (Test-Path -LiteralPath $sidePath) { Move-Atomic -File $sidePath -DestDir $inboxDir | Out-Null }
+    # chain copies never moved - nothing to move back; the copy stays in the
+    # inbox and the sweep retries (PULL-equivalent).
+    if (-not $isChain) {
+        Move-Atomic -File $claimed -DestDir $inboxDir | Out-Null
+        $sidePath = Join-Path $procDir ([System.IO.Path]::GetFileNameWithoutExtension($claimed) + '.progress')
+        if (Test-Path -LiteralPath $sidePath) { Move-Atomic -File $sidePath -DestDir $inboxDir | Out-Null }
+    }
     Write-Journal -Agent $agent -Action 'WARN' -Detail ('all notify channels failed for ' + $mid + ' - requeued to inbox')
     Write-Host (Get-AkText 'route.notify-failed' 'NOTIFY-FAILED {0} - all channels failed, requeued to inbox' $mid)
     exit 1

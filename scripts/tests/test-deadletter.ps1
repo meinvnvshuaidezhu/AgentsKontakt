@@ -227,6 +227,49 @@ Check 'CD carried sidecar in processing'    (Test-Path -LiteralPath $procSideD)
 Check 'CD DISPATCHED count accumulated (2+1)'($dispCount -eq 3) ('count=' + $dispCount)
 Check 'CD STATUS ok after quick wake'       ($sD -match '(?m)^STATUS ok\s*$') $sD
 
+# ------------------------------- case F: exhausted but recipient alive -> deferred
+Write-Host 'case F: attempts exhausted but live stream mirror -> return deferred'
+New-Agent -Root $Sandbox -Name 'dl-alive' -Wake 'exec exit 0'
+$idF = 'msg-20261029-100006-dlsend-f006'
+$mF = New-Message -Root $Sandbox -Agent 'dl-alive' -From 'dl-send' -Id $idF -Topic 't-20261029-sbf6'
+$sideF = Add-Attempts -MdPath $mF -Count 3
+# the recipient's live session transcript mirror (card-declared liveness signal)
+$livelog = Join-Path $Sandbox 'logs\dl-alive'
+New-Item -ItemType Directory -Force -Path $livelog | Out-Null
+$streamF = Join-Path $livelog 'stream-local-f006.jsonl'
+[System.IO.File]::WriteAllText($streamF, '{"t":"working"}', (New-Object System.Text.UTF8Encoding($false)))
+$rF = Invoke-Route -Sandbox $Sandbox -Msg $mF -ProbeMs $ExecProbeMs
+Check 'CF route answers DEFERRED'           ($rF.Output -match 'DEFERRED') $rF.Output
+Check 'CF route exits 0'                    ($rF.Code -eq 0) ('exit=' + $rF.Code)
+Check 'CF letter NOT returned, stays in inbox' (Test-Path -LiteralPath $mF)
+Check 'CF sidecar kept (attempts meter)'    (Test-Path -LiteralPath $sideF)
+Check 'CF no bounce mail to sender'         (-not (Get-ChildItem (Join-Path $Sandbox 'mailboxes\dl-send\inbox') -Filter 'sys-*.md' -ErrorAction SilentlyContinue | Where-Object { (Get-Content $_.FullName -Raw) -match ('RETURNED ' + $idF) }))
+Check 'CF journal notes the deferral'       ((Read-Text (Join-Path $Sandbox 'logs\dl-alive\journal.log')) -match 'return deferred') (Read-Text (Join-Path $Sandbox 'logs\dl-alive\journal.log'))
+# ...and once the session goes quiet (stream stale), the same guard returns it
+(Get-Item -LiteralPath $streamF).LastWriteTime = (Get-Date).AddHours(-2)
+$rF2 = Invoke-Route -Sandbox $Sandbox -Msg $mF -ProbeMs $ExecProbeMs
+Check 'CF quiet again -> RETURNED'          ($rF2.Output -match 'RETURNED .*attempts exhausted') $rF2.Output
+Check 'CF condemned copy quarantined (recoverable)' ((Test-Path -LiteralPath (Join-Path (Join-Path $Sandbox 'post\trash') ($idF + '.md'))) -and -not (Test-Path -LiteralPath $mF))
+
+# ------------------------------ case G: chain dispatch lock serializes routers
+Write-Host 'case G: chain copy dispatch lock - fresh lock skips, stale lock dispatches'
+New-Agent -Root $Sandbox -Name 'dl-chain' -Wake 'exec exit 0'
+$idG = 't-20261029-sbg7.chain'
+$mG = New-Message -Root $Sandbox -Agent 'dl-chain' -From 'dl-send' -Id $idG -Topic 't-20261029-sbg7'
+# simulate the concurrent router: a fresh chainlock means it owns this dispatch
+$lockG = Join-Path $Sandbox ('logs\routed\' + $idG + '.chainlock')
+[System.IO.File]::WriteAllText($lockG, 'routed', (New-Object System.Text.UTF8Encoding($false)))
+$rG1 = Invoke-Route -Sandbox $Sandbox -Msg $mG -ProbeMs $ExecProbeMs
+Check 'CG1 fresh lock -> route skips silently' (($rG1.Code -eq 0) -and ($rG1.Output -notmatch 'DISPATCHED')) $rG1.Output
+Check 'CG1 letter untouched in inbox'          (Test-Path -LiteralPath $mG)
+Check 'CG1 no sidecar created'                 (-not (Test-Path -LiteralPath ($mG + '.progress')))
+# stale lock (crashed router) is taken over and the dispatch proceeds normally
+(Get-Item -LiteralPath $lockG).LastWriteTime = (Get-Date).AddSeconds(-60)
+$rG2 = Invoke-Route -Sandbox $Sandbox -Msg $mG -ProbeMs $ExecProbeMs
+Check 'CG2 stale lock -> dispatch proceeds'    ($rG2.Output -match 'DISPATCHED') $rG2.Output
+Check 'CG2 chain letter stays in inbox'        (Test-Path -LiteralPath $mG)
+Check 'CG2 sidecar with DISPATCHED line'       ((Read-Text ([System.IO.Path]::ChangeExtension($mG, '.progress'))) -match 'DISPATCHED \(post office')
+
 # ------------------------------------------- case E: cleanup sys-mail retention
 Write-Host 'case E: cleanup purges aged sys mail + orphan sidecars, keeps the rest'
 $utf8e = New-Object System.Text.UTF8Encoding($false)

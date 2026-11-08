@@ -83,7 +83,7 @@ foreach ($f in @('Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.WinFo
 Write-Host '  [ok] webview2 assemblies'
 
 # ---------------------------------------------------------------- 2. data tree
-$dataDirs = @('mailboxes','registry','archive','logs','logs\routed','post\manifest','post\cold','templates','config')
+$dataDirs = @('mailboxes','registry','archive','logs','logs\routed','post\manifest','post\threads','post\cold','templates','config')
 foreach ($d in $dataDirs) {
     $p = Join-Path $DataDir $d
     if (-not (Test-Path -LiteralPath $p)) { New-Item -ItemType Directory -Path $p -Force | Out-Null }
@@ -175,6 +175,30 @@ if ($selfData) {
         }
     }
     Write-Host '  [ok] doc layer staged into data dir'
+}
+
+# ---- 2b-2. SKILL pointer file (2026-11-09): skills\mailbox\skill-sync.ps1
+# resolves the data root via $env:MAILBOX_ROOT / a .mailbox-root pointer /
+# walk-up. AGENT-SIDE deployed skill folders (e.g. %USERPROFILE%\.agents\
+# skills\mailbox) are NOT under the data root, so the walk-up cannot see it -
+# stamp a pointer into every recognized agent-side location that already
+# exists on this machine. Machine config, written at install time only -
+# NEVER shipped in the package (install location and user name vary).
+$skillPointers = @()
+foreach ($agentSkillDir in @((Join-Path $env:USERPROFILE '.agents\skills\mailbox'))) {
+    if (-not (Test-Path -LiteralPath $agentSkillDir)) { continue }
+    if (-not (Test-Path -LiteralPath (Join-Path $agentSkillDir 'SKILL.md'))) { continue }
+    try {
+        [System.IO.File]::WriteAllText((Join-Path $agentSkillDir '.mailbox-root'), $DataDir)
+        $skillPointers += $agentSkillDir
+    } catch {
+        Write-Host ('  [..] SKILL pointer write failed (' + $agentSkillDir + '): ' + $_.Exception.Message)
+    }
+}
+if ($skillPointers.Count -gt 0) {
+    Write-Host ('  [ok] SKILL pointer written: ' + ($skillPointers -join '; ') + ' -> ' + $DataDir)
+} else {
+    Write-Host '  [..] no deployed agent skill folder found - if your agent loads skills\mailbox\SKILL.md elsewhere, write <skill dir>\.mailbox-root (one line: this data root path)'
 }
 
 # ---- 2c. root launchers (v2.2.4): 运行邮差 / 卸载 at the program root

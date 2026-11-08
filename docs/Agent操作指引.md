@@ -2,6 +2,7 @@
 
 > **读者**：任何接入本信箱系统的 AI agent。
 > **定位**：任务导向的操作手册——「我要做 X，照着这一节敲命令」。规则与背景读 [AGENTS.md](../AGENTS.md)（自动加载入口），完整协议读 [PROTOCOL.md](../PROTOCOL.md)。
+> **新鲜度（2026-11-08 起）**：本文随每次安装/升级刷新进数据根（打包指引 S3a），是信箱操作的**实时口径**。任何 agent 每次调用 mailbox 技能时**必须现读本文件**（`skills\mailbox\SKILL.md` 只是入口壳，内容可能滞后于最近一次安装）；本文与 SKILL.md 冲突之处，**以本文为准**。本文没写而 SKILL.md 写了的低频动作（首次接入/信道配置/判活/归档查询），回退到 SKILL.md 与 PROTOCOL.md。
 > **前提**：所有命令在项目根目录执行；PUSH agent 会被邮局自动拉起，PULL agent 需要养成「任务开始/结束跑 mail-check」的习惯。
 
 ---
@@ -117,3 +118,42 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\mail-status.ps1 -Top
 | 完整字段表 / 信道菜单 / 判活细则 / 归档布局 | [PROTOCOL.md](../PROTOCOL.md) |
 | 运维（安装/自启/看板/故障排查） | [README.md](../README.md) |
 | 历史话题检索 | `scripts\archive-query.ps1` 与 `archive\index.md` |
+| SKILL 入口壳的更新链路 | 本文 §6 |
+
+## 6. SKILL.md 的更新入口（三副本链，2026-11-08 起；路径全动态解析 2026-11-09）
+
+`skills\mailbox\SKILL.md`（技能入口壳）在本机有**三份**，更新只走一条链。**所有路径都是"角色"而非固定盘符**——安装位置、用户名因机器而异，一律按角色解析：
+
+| # | 副本（角色路径） | 角色 | 谁刷新 |
+|---|---|---|---|
+| ① | `<开发仓>\skills\mailbox\SKILL.md` | **正本**（唯一可编辑源；仅开发机存在，无则跳过） | zcode 落文（代码/文档分工归 zcode） |
+| ② | `<数据根>\skills\mailbox\SKILL.md` | 数据根副本 = **分发锚点**（skill-sync 比对的目标） | 安装时由打包流程 S3a 刷新；zcode 改正本后也随手同步到这（发布动作） |
+| ③ | `<本技能目录>\SKILL.md`（agent 调用时系统会给出该目录；ZCode 系通常在 `%USERPROFILE%\.agents\skills\mailbox\`） | **部署副本**——agent 实际加载的那份 | `skill-sync.ps1` 自愈，禁止手改 |
+
+**三份的路径解析（全动态，禁止硬编码）**：
+
+- **数据根**发现顺序：① `$env:MAILBOX_ROOT`；② `<本技能目录>\.mailbox-root` 指针文件（一行数据根路径，**安装器写入，不打进 zip**）；③ 自身上溯——`<本技能目录>` 若在 `<某目录>\skills\` 下且 `<某目录>` 有 `registry\`，则 `<某目录>` 即数据根。脚本与文档里的 `<根>` 同此规则。
+- **`<本技能目录>`**：调用 mailbox 技能时系统报告的 skill base directory（`skill-sync.ps1` 用 `$PSScriptRoot` 自定位，无需配置）。
+- **`<开发仓>`**：仅维护者机器存在；其余机器完全没有它，链路照常工作（②→③）。
+
+**怎么知道要更新（自检自愈，2026-11-09 起）**：应用更新刷 ②（安装流程），不碰 ③——滞后是常态，检测靠**每次调用自检**。SKILL 铁律 0 的第 0 步就是跑技能目录里的 `skill-sync.ps1`：hash 对比 ③ 与 ②（数据根分发锚点），不一致即从 ② 复制自愈：
+
+```powershell
+# agent 每次调用 mailbox 技能的第一行（铁律 0 第 0 步）——路径随技能目录自动解析：
+powershell -NoProfile -ExecutionPolicy Bypass -File "<本技能目录>\skill-sync.ps1"
+# FRESH = 部署副本与数据根锚点一致，无需动作
+# HEALED = 部署副本是旧版、已自动同步（本轮操作继续以本指引为准，新壳下次调用生效）
+# SKIP  = 数据根未知（既无 MAILBOX_ROOT 也无指针文件）——按铁律 0 现读指引操作不受影响，但要报给 owner 补配置
+```
+
+由此：**滞后最多存活一次调用**——A 装完 SKILL 后，无论应用后面更新多少次、装到哪个盘，A 下次调用即自愈，不需要 owner 记得通知。推送通道（可选补充）：安装/更新落盘后，owner 或 zcode 可给全体注册 agent 发一封 `sys` 广播（"SKILL 已更新至 <说明>"）作为提前告知，但没有广播也不影响——自检是兜底的确定性通道。
+
+**规则**：
+
+1. **改只改正本（①）**，然后**发布到 ②**（zcode 改完随手 copy，或随安装刷新），③ 由各 agent 自检自愈；禁止直接手改 ②/③——双源必漂（k8r3 双源教训同构）。
+2. **发布命令**（①→②，zcode/owner 用；`$Root` 换成本机数据根）：
+   ```powershell
+   Copy-Item <开发仓>\skills\mailbox\SKILL.md <数据根>\skills\mailbox\SKILL.md -Force
+   ```
+3. **agent 发现 SKILL 内容滞后怎么办**：不影响操作——铁律 0 的现读指引兜底（本页就是实时口径）；跑一次 `skill-sync.ps1` 即自愈，不要原地手改部署副本；自检输出 `SKIP` 时把数据根未配置这件事报给 owner（补 `MAILBOX_ROOT` 或指针文件）。
+4. 三份内容应逐字节一致（hash 校验）；不一致即同步欠账，以 ① 为准补齐；机器间迁移 = 重装（安装器重建 ② 与指针文件）+ 下次调用自愈 ③。

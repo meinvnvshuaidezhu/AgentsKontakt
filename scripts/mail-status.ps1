@@ -19,6 +19,25 @@ if (-not $Root) {
 
 if (-not ($Id -or $Topic -or $Agent)) { Write-Error (Get-AkText 'mailstatus.usage' 'usage: mail-status -Id <msg-id> | -Topic <t-...> | -Agent <name>'); exit 1 }
 
+# v3 state machine view (§2.2): when the topic exists in post\threads, lead
+# with the status.json facts - they are authoritative over file positions.
+if ($Topic) {
+    $stV3 = Get-TopicStatus -Topic $Topic
+    if ($stV3) {
+        $chainList = (@($stV3.chain) -join ', ')
+        $copiesTxt = ''
+        if ($stV3.copies) {
+            foreach ($p in ($stV3.copies.PSObject.Properties)) {
+                $e = $p.Value
+                $copiesTxt += (' {0}[delivered={1} cleared={2}]' -f $p.Name, [string]$e.delivered_at, [string]$e.cleared_at)
+            }
+        }
+        Write-Host ("STATE {0} | {1} | {2}->{3} | heartbeat={4} | chain=[{5}] ({6} bytes){7}" -f `
+            $Topic, [string]$stV3.state, [string]$stV3.from, [string]$stV3.to, `
+            [string]$stV3.last_heartbeat, $chainList, [string]$stV3.chain_bytes, $copiesTxt)
+    }
+}
+
 $roots = @($script:DirMailboxes, $script:DirArchive)
 $found = @()
 foreach ($r in $roots) {

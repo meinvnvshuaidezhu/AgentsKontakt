@@ -36,6 +36,43 @@ if (-not $haveFilter) {
     exit 0
 }
 
+# JSONL backend (v3 §2.4): when archive\index.jsonl exists and the query
+# can be answered from it (no Model/Keyword/Message - those need summary
+# bodies), read it with per-line tolerance. Falls back to the summary scan
+# below when the file is absent (legacy tree / pre-backfill).
+$jsonlPath = Get-ArchiveJsonlPath
+$useJsonl = (Test-Path -LiteralPath $jsonlPath) -and -not ($Model -or $Keyword -or $Message)
+if ($useJsonl) {
+    $badLines = 0
+    $rows = @()
+    foreach ($ln in [System.IO.File]::ReadAllLines($jsonlPath)) {
+        if (-not $ln.Trim()) { continue }
+        try { $rows += ($ln | ConvertFrom-Json) } catch { $badLines++ }
+    }
+    if ($badLines -gt 0) { Write-Host (Get-AkText 'aq.badlines' 'warning: {0} unreadable index line(s) skipped' $badLines) }
+    foreach ($r in $rows) {
+        $tp = [string]$r.topic; $fr = [string]$r.initiator; $to = [string]$r.responder
+        $dt = [string]$r.start_date; $ti = [string]$r.title; $ref = [string]$r.thread_ref
+        $ok = $true
+        if ($ok -and $Topic -and $tp -ne $Topic) { $ok = $false }
+        if ($ok -and $From -and $fr -ne $From) { $ok = $false }
+        if ($ok -and $To -and $to -ne $To) { $ok = $false }
+        if ($ok -and $Agent) {
+            $involves = (($fr -eq $Agent) -or ($to -eq $Agent))
+            if ($With) { if (-not ($involves -and (($fr -eq $With) -or ($to -eq $With)))) { $ok = $false } }
+            elseif (-not $involves) { $ok = $false }
+        }
+        if ($ok -and $Date -and $dt -ne $Date) { $ok = $false }
+        if ($ok -and $Month -and (-not $dt.StartsWith($Month))) { $ok = $false }
+        if ($ok -and $Year -and (-not $dt.StartsWith($Year))) { $ok = $false }
+        if ($ok) {
+            Write-Host (Get-AkText 'aq.hit' '{0} | {1} | {2} -> {3} | closed {4}' $tp $ti $fr $to [string]$r.closed_time)
+            Write-Host ('  chain: ' + (Join-Path $script:DirArchive ($ref -replace '/', '')))
+        }
+    }
+    exit 0
+}
+
 $hits = @()
 foreach ($f in (Get-ChildItem -LiteralPath $script:DirArchive -Recurse -Filter 'summary.md' -File -ErrorAction SilentlyContinue)) {
     $fm = Read-FrontMatter -Path $f.FullName

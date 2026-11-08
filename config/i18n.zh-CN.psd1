@@ -100,6 +100,7 @@
   # ---- core\route.ps1 ----
   'route.returned-exhausted'  = '已退回 [RETURNED] {0} - attempts exhausted（唤醒次数耗尽）({1})'
   'route.queued-busy'         = '收件方忙-已排队 [QUEUED-BUSY] {0}'
+  'route.exhausted-busy'      = '存活方活跃-暂缓退回 [DEFERRED] {0} - attempts exhausted but recipient active（唤醒次数已耗尽，但收件方仍在活动，退回暂缓）'
   'route.claimed-no-dispatch' = '已认领-不派发 [CLAIMED(no-dispatch)] {0}'
   'route.dispatched'          = '已派发 [DISPATCHED] {0} -> {1} ({2})'
   'route.notify-failed'       = '派发失败 [NOTIFY-FAILED] {0} - all channels failed（所有通道失败，已重新排队到 inbox / requeued to inbox）'

@@ -435,12 +435,40 @@ foreach ($peer in $chats.Keys) {
 }
 $chatList = @($chatList | Sort-Object { [datetime]::Parse($_.lastTime) } -Descending)
 
+# v3 trash node (n5w8 R4): the recycle-station data source for the UI.
+# index.json is the post office's own record; items are capped at 50 with a
+# 160-char excerpt and a full body (max 4000 chars) so the panel can show
+# content on click without reading the trash dir itself.
+$trashNode = $null
+$trashIdx = Join-Path $script:DirPost 'trash\index.json'
+if (Test-Path -LiteralPath $trashIdx) {
+    try {
+        $tIdx = [System.IO.File]::ReadAllText($trashIdx) | ConvertFrom-Json
+        $tItems = @()
+        foreach ($it in @($tIdx.items | Select-Object -First 50)) {
+            $bodyFull = ''
+            $itemPath = Join-Path (Join-Path $script:DirPost ('trash' + [string]$it.trash_id)) [string]$it.item
+            if (Test-Path -LiteralPath $itemPath) {
+                $bodyFull = ([System.IO.File]::ReadAllText($itemPath) -replace '\s+', ' ').Trim()
+                if ($bodyFull.Length -gt 4000) { $bodyFull = $bodyFull.Substring(0, 4000) }
+            }
+            $tItems += [pscustomobject]@{ trash_id = [string]$it.trash_id; kind = [string]$it.kind
+                original_name = [string]$it.original_name; id = [string]$it.id; topic = [string]$it.topic
+                verdict = [string]$it.verdict; detected_at = [string]$it.detected_at
+                expires_at = [string]$it.expires_at; excerpt = ([string]$it.excerpt).Substring(0, [Math]::Min(160, ([string]$it.excerpt).Length))
+                body = $bodyFull }
+        }
+        $trashNode = [pscustomobject]@{ count = [int]$tIdx.count; retention_days = [int]$tIdx.retention_days; items = $tItems }
+    } catch { $trashNode = $null }
+}
+
 $payload = [pscustomobject]@{
     generated = ($now.ToString('yyyy-MM-dd HH:mm:ss'))
     now = (Get-Iso $now)
     localAgent = $LocalAgent
     agents = $agentList
     chats = $chatList
+    trash = $trashNode
 }
 $json = ConvertTo-Json -InputObject $payload -Depth 6
 # Generated output lives in <root>\dashboard\ (kept out of the project root;

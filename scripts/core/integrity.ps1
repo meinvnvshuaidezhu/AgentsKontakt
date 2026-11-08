@@ -22,7 +22,61 @@ if (-not $Root) {
 # unmanifested (planted or hand-edited). Stock topics without a manifest file
 # are skipped. Exit 1 when anything failed.
 
-if (-not (Test-Path -LiteralPath $script:DirManifest)) { Write-Host (Get-AkText 'integrity.no-manifest' 'integrity: no manifest yet'); exit 0 }
+# ---- v3 chain audit (r4.1 §6, review: must run unconditionally - the
+# archsig short-circuit below must not skip it, threads drift is independent
+# of archive drift) ---------------------------------------------
+$fail = 0
+$checked = 0; $tampered = 0; $topics = 0; $cached = 0
+# A3 (t-20261107-ix07): the chain audit's workload must show up in the summary
+# line, and its $fail must survive the early exits below - both used to swallow
+# it (a found-but-doomed drift reported "unchanged / exit 0", CI never saw it).
+$chainTopics = 0
+$chainEntries = 0
+$threadsRoot = Join-Path $script:DirPost 'threads'
+if (Test-Path -LiteralPath $threadsRoot) {
+    foreach ($td in (Get-ChildItem -LiteralPath $threadsRoot -Directory -ErrorAction SilentlyContinue)) {
+        $t = $td.Name
+        if ($Topic -and $t -ne $Topic) { continue }
+        $chainTopics++
+        $sp = Join-Path $td.FullName 'status.json'
+        if (-not (Test-Path -LiteralPath $sp)) {
+            $fail++; Write-Host ('integrity: ORPHAN thread dir (no status.json): ' + $t); continue
+        }
+        $chainFiles = @(Get-ChildItem -LiteralPath $td.FullName -File -Filter 'thread-*.md' -ErrorAction SilentlyContinue)
+        $chainEntries += $chainFiles.Count
+        if (-not $chainFiles.Count) {
+            $fail++; Write-Host ('integrity: ORPHAN thread dir (no thread-*.md): ' + $t); continue
+        }
+        try { $stj = [System.IO.File]::ReadAllText($sp) | ConvertFrom-Json } catch {
+            $fail++; Write-Host ('integrity: UNREADABLE status.json: ' + $t); continue
+        }
+        $listed = @([string]$stj.chain)
+        foreach ($c in $listed) {
+            if ($c -and -not (Test-Path -LiteralPath (Join-Path $td.FullName $c))) {
+                $fail++; Write-Host ('integrity: chain entry missing on disk: ' + $t + '\' + $c)
+            }
+        }
+        foreach ($cf in $chainFiles) {
+            if ($listed -notcontains $cf.Name) {
+                $fail++; Write-Host ('integrity: thread file not in chain list: ' + $t + '\' + $cf.Name)
+            }
+        }
+    }
+}
+function Write-IntegritySummary {
+    # A3: one summary line no matter which exit fires - "exit 0 without a
+    # summary" was the fake-green shape (CI could not tell "ran clean" from
+    # "never ran"). cached=all marks the sig short-circuit explicitly.
+    param([string]$CachedSuffix = '')
+    Write-Host ((Get-AkText 'integrity.summary' 'integrity: topics={0} files={1} tampered={2} cached={3}' $topics $checked $tampered $cached) +
+        (' chain_topics={0} chain_entries={1} chain_fail={2}' -f $chainTopics, $chainEntries, $fail) + $CachedSuffix)
+}
+if (-not (Test-Path -LiteralPath $script:DirManifest)) {
+    Write-Host (Get-AkText 'integrity.no-manifest' 'integrity: no manifest yet')
+    Write-IntegritySummary
+    if ($fail -gt 0) { exit 1 }   # A3: the chain audit ran even without a manifest - its verdict must count
+    exit 0
+}
 
 $manifests = Get-ChildItem -LiteralPath $script:DirManifest -File -Filter '*.manifest' -ErrorAction SilentlyContinue
 if ($Topic) { $manifests = @($manifests | Where-Object { $_.BaseName -eq $Topic }) }
@@ -48,12 +102,17 @@ if (-not $Topic) {
     $oldSig = $null
     if ($sig.Length -gt 0 -and (Test-Path -LiteralPath $sigPath)) {
         try { $oldSig = [System.IO.File]::ReadAllText($sigPath) } catch {}
-        if ($oldSig -eq $sig.ToString()) { Write-Host (Get-AkText 'integrity.unchanged' 'integrity: archive unchanged (sig match)'); exit 0 }
+        if ($oldSig -eq $sig.ToString()) {
+            Write-Host (Get-AkText 'integrity.unchanged' 'integrity: archive unchanged (sig match)')
+            # A3: the sig short-circuit only skips the ARCHIVE hash pass; the
+            # chain audit above ran unconditionally and its $fail must count.
+            Write-IntegritySummary -CachedSuffix ' (sig match: archive hash pass skipped, chain audit ran)'
+            if ($fail -gt 0) { exit 1 }
+            exit 0
+        }
     }
     $script:ArchSig = $sig.ToString()
 }
-
-$checked = 0; $tampered = 0; $topics = 0; $cached = 0
 
 # Single pass over the archive: one recursive walk builds the topic-dir index.
 # Previously every manifest did its own full recursive search (O(manifests x
@@ -151,6 +210,7 @@ if ($script:ArchSig) {
     [System.IO.File]::WriteAllText((Join-Path $script:DirManifest 'integrity.archsig'), $script:ArchSig, $script:UTF8Bom)
 }
 
-Write-Host (Get-AkText 'integrity.summary' 'integrity: topics={0} files={1} tampered={2} cached={3}' $topics $checked $tampered $cached)
+Write-IntegritySummary
+if ($fail -gt 0) { exit 1 }
 if ($tampered -gt 0) { exit 1 }
 exit 0

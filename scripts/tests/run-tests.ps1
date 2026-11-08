@@ -121,35 +121,41 @@ foreach ($a in @('ta', 'tb')) {
     }
 }
 
-Write-Host 'T1 deliver: request ta -> tb (copy-delivery + master + receipt)'
+Write-Host 'T1 deliver (v3): request ta -> tb creates the topic + chain copy + master'
 $req = New-Letter -From 'ta' -To 'tb' -Type 'request' -Subject 'regression request' -Body 'please answer with ACCEPTANCE-OK'
 $r = Invoke-Post -Script (Join-Path $ScriptsDir 'send.ps1') -PostArgs @('-File', $req.path)
-$copyPath = Join-Path (Join-Path (Join-Path (Join-Path $Sandbox 'mailboxes') 'tb') 'inbox') ($req.id + '.md')
-$master   = Join-Path (Join-Path (Join-Path (Join-Path $Sandbox 'mailboxes') 'ta') 'sent') ($req.id + '.md')
+$chainCopy = Join-Path (Join-Path (Join-Path (Join-Path $Sandbox 'mailboxes') 'tb') 'inbox') ($req.topic + '.chain.md')
+$master    = Join-Path (Join-Path (Join-Path (Join-Path $Sandbox 'mailboxes') 'ta') 'sent') ($req.id + '.md')
+$threadStatus = Join-Path (Join-Path (Join-Path $Sandbox 'post') 'threads') ($req.topic + '\status.json')
 Assert 'send exits 0 (DELIVERED)'          ($r.code -eq 0 -and $r.out -match 'DELIVERED') $r.out
-Assert 'copy in recipient inbox'           (Test-Path $copyPath)
+Assert 'v3 thread created (status.json)'   (Test-Path $threadStatus)
+Assert 'thread state=pending'              ((Get-Content $threadStatus -Raw | ConvertFrom-Json).state -eq 'pending')
+Assert 'chain copy in recipient inbox'     (Test-Path $chainCopy)
 Assert 'master in sender sent area'        (Test-Path $master)
 Assert 'master status DELIVERED'           ((Get-SidecarValue -MessagePath $master -Key 'status') -eq 'DELIVERED')
-Assert 'manifest has both copies'          ((@(Get-Content (Join-Path (Join-Path (Join-Path $Sandbox 'post') 'manifest') ($req.topic + '.manifest')) -ErrorAction SilentlyContinue)).Count -ge 2)
 Assert 'receipt sys-mail in sender inbox'  (@(Get-ChildItem (Join-Path (Join-Path (Join-Path $Sandbox 'mailboxes') 'ta') 'inbox') -Filter 'sys-*.md' -ErrorAction SilentlyContinue).Count -ge 1)
 
-Write-Host 'T2 PULL check + claim + heartbeat'
+Write-Host 'T2 PULL check + claim (state flip, no move) + heartbeat (v3)'
 $r = Invoke-Post -Script (Join-Path $ScriptsDir 'mail-check.ps1') -PostArgs @('-Agent', 'tb')
-Assert 'mail-check reports mail (exit 1)'  ($r.code -eq 1) ('exit=' + $r.code + ' ' + $r.out)
-$r = Invoke-Post -Script (Join-Path $ScriptsDir 'claim.ps1') -PostArgs @('-File', $copyPath)
-Assert 'claim moves into processing'       ($r.code -eq 0 -and (Test-Path (Join-Path (Join-Path (Join-Path (Join-Path $Sandbox 'mailboxes') 'tb') 'processing') ($req.id + '.md')))) $r.out
-$claimed = Join-Path (Join-Path (Join-Path (Join-Path $Sandbox 'mailboxes') 'tb') 'processing') ($req.id + '.md')
-$r = Invoke-Post -Script (Join-Path $ScriptsDir 'progress.ps1') -PostArgs @('-File', $claimed, '-Note', 'regression heartbeat')
-Assert 'heartbeat sidecar written'         (Test-Path (Join-Path (Join-Path (Join-Path (Join-Path $Sandbox 'mailboxes') 'tb') 'processing') ($req.id + '.progress')))
+Assert 'mail-check reports TOPIC (exit 1)' ($r.code -eq 1 -and $r.out -match 'TOPIC') ('exit=' + $r.code + ' ' + $r.out)
+$r = Invoke-Post -Script (Join-Path $ScriptsDir 'claim.ps1') -PostArgs @('-File', $chainCopy)
+Assert 'claim flips state to processing'   ($r.code -eq 0 -and ((Get-Content $threadStatus -Raw | ConvertFrom-Json).state -eq 'processing')) $r.out
+Assert 'chain copy stayed in inbox (no move)' (Test-Path $chainCopy)
+$hbBefore = (Get-Content $threadStatus -Raw | ConvertFrom-Json).last_heartbeat
+Start-Sleep -Milliseconds 1100   # heartbeat timestamps are second-granular
+$r = Invoke-Post -Script (Join-Path $ScriptsDir 'progress.ps1') -PostArgs @('-Topic', $req.topic, '-Note', 'regression heartbeat')
+Assert 'heartbeat refreshes last_heartbeat' ((Get-Content $threadStatus -Raw | ConvertFrom-Json).last_heartbeat -ne $hbBefore)
 
-Write-Host 'T3 reply tb -> ta (role flip, requester master flips REPLIED)'
-$rep = New-Letter -From 'tb' -To 'ta' -Type 'reply' -InReplyTo $req.id -Topic $req.topic -Body 'ACCEPTANCE-OK'
+Write-Host 'T3 answer (v3): tb answers - answered + zero traces on tb + chain to ta'
+$rep = New-Letter -From 'tb' -To 'ta' -Type 'reply' -InReplyTo $req.id -Topic $req.topic -Body 'ACCEPTANCE-OK' -Kind 'answer'
 $r = Invoke-Post -Script (Join-Path $ScriptsDir 'send.ps1') -PostArgs @('-File', $rep.path)
-$replyInTa = Join-Path (Join-Path (Join-Path (Join-Path $Sandbox 'mailboxes') 'ta') 'inbox') ($rep.id + '.md')
-Assert 'reply delivered to ta inbox'       ($r.code -eq 0 -and $r.out -match 'DELIVERED' -and (Test-Path $replyInTa)) $r.out
-Assert 'requester master status REPLIED'   ((Get-SidecarValue -MessagePath $master -Key 'status') -eq 'REPLIED')
+$chainInTa = Join-Path (Join-Path (Join-Path (Join-Path $Sandbox 'mailboxes') 'ta') 'inbox') ($req.topic + '.chain.md')
+Assert 'answer delivered, state=answered'  ($r.code -eq 0 -and $r.out -match 'DELIVERED' -and ((Get-Content $threadStatus -Raw | ConvertFrom-Json).state -eq 'answered')) $r.out
+Assert 'chain copy refreshed in ta inbox (contains the answer)' ((Test-Path $chainInTa) -and ((Get-Content $chainInTa -Raw) -match 'ACCEPTANCE-OK'))
+Assert 'tb left zero traces (chain copy cleared)' (-not (Test-Path $chainCopy))
+Assert 'copies trace kept (tb cleared_at set)' ([string]((Get-Content $threadStatus -Raw | ConvertFrom-Json).copies.tb.cleared_at) -ne '')
 $r = Invoke-Post -Script (Join-Path $ScriptsDir 'mail-status.ps1') -PostArgs @('-Topic', $req.topic)
-Assert 'mail-status runs (exit 0)'         ($r.code -eq 0) $r.out
+Assert 'mail-status prints the STATE line' ($r.code -eq 0 -and $r.out -match 'STATE') $r.out
 
 Write-Host 'T4 gate: spoofed from is returned with a reason'
 $spoof = New-Letter -From 'ta' -To 'tb' -Type 'request' -Subject 'spoof test'
@@ -173,19 +179,21 @@ Assert 'non-initiator close DENIED (exit 1)' ($r.code -eq 1 -and $r.out -match '
 $tbInbox = Join-Path (Join-Path (Join-Path $Sandbox 'mailboxes') 'tb') 'inbox'
 Assert 'ARCHIVE-DENIED sys-mail in tb inbox' (@(Get-ChildItem $tbInbox -Filter 'sys-*.md' -ErrorAction SilentlyContinue | Where-Object { (Get-Content $_.FullName -Raw) -match 'ARCHIVE-DENIED' }).Count -ge 1)
 
-Write-Host 'T7 close by initiator: gather + dedupe + summary + lockdown'
+Write-Host 'T7 archive by initiator (v3): chain + status + summary + JSONL + lockdown'
 $r = Invoke-Post -Script (Join-Path $ScriptsDir 'close.ps1') -PostArgs @('-Topic', $req.topic, '-Agent', 'ta')
 $d = (Get-Date -Format 'yyyy'), (Get-Date -Format 'MM'), (Get-Date -Format 'dd')
 $archDir = Join-Path (Join-Path (Join-Path (Join-Path (Join-Path (Join-Path $Sandbox 'archive') 'ta') $d[0]) $d[1]) $d[2]) $req.topic
 Assert 'close exits 0 (CLOSED)'            ($r.code -eq 0 -and $r.out -match 'CLOSED') $r.out
 Assert 'archive topic dir created'         (Test-Path $archDir)
-Assert 'request + reply + summary gathered' ((@(Get-ChildItem $archDir -Filter '*.md')).Count -ge 3)
-Assert 'sender master deduped away'        (-not (Test-Path $master))
-Assert 'responder master deduped away'     (-not (Test-Path (Join-Path (Join-Path (Join-Path (Join-Path $Sandbox 'mailboxes') 'tb') 'sent') ($rep.id + '.md'))))
+Assert 'thread chain + summary archived'   ((@(Get-ChildItem $archDir -Filter 'thread-*.md')).Count -ge 1 -and (Test-Path (Join-Path $archDir 'summary.md')))
+Assert 'status.json archived with the chain' (Test-Path (Join-Path $archDir 'status.json'))
+Assert 'threads dir emptied (no orphans)'  (-not (Test-Path $threadStatus))
+Assert 'both inboxes cleared of the chain copy' (-not (Test-Path $chainInTa) -and -not (Test-Path (Join-Path (Join-Path (Join-Path (Join-Path $Sandbox 'mailboxes') 'tb') 'inbox') ($req.topic + '.chain.md'))))
 $summary = Join-Path $archDir 'summary.md'
 Assert 'summary front-matter from=ta'      ((Test-Path $summary) -and ((Get-Content $summary -Raw) -match 'from: ta'))
 Assert 'global index has the topic'        ((Get-Content (Join-Path (Join-Path $Sandbox 'archive') 'index.md') -Raw) -match [regex]::Escape($req.topic))
-$lockProbe = Join-Path $archDir ($req.id + '.md')
+Assert 'JSONL index has the topic'         ((Get-Content (Join-Path (Join-Path $Sandbox 'archive') 'index.jsonl') -Raw) -match [regex]::Escape($req.topic))
+$lockProbe = Join-Path $archDir 'thread-1.md'
 $locked = $false
 try { $fs = [System.IO.File]::Open($lockProbe, 'Append', 'Write'); $fs.Close() } catch { $locked = $true }
 Assert 'archived files are read-only'      $locked
@@ -214,6 +222,29 @@ Assert 'rotation file present'             ($rotations.Count -ge 1 -and $rotatio
 Assert 'expired mirror deleted'            (-not (Test-Path $oldStream))
 Assert 'live mirror kept'                  (Test-Path $newStream)
 
+# ---- T10: v3 selftest (r4.1 §7-3) - full state-machine chain in a temp root ----
+Write-Host 'T10 v3 selftest: state machine + neutral docs full chain'
+$r = Invoke-Post -Script (Join-Path $ScriptsDir 'tests/test-v3-selftest.ps1')
+# A2 (t-20261107-ix07): parse the pass/fail counts from the output instead of
+# hardcoding one - the assertion count grows with every new case and a stale
+# number in the name is exactly the "green but wrong" shape workbuddy flagged.
+$st10 = $null
+if ($r.out -match 'pass=(\d+)\s+fail=(\d+)') { $st10 = @{ pass = [int]$Matches[1]; fail = [int]$Matches[2] } }
+Assert 'v3 selftest exits 0, all assertions green' ($r.code -eq 0 -and $st10 -and $st10.fail -eq 0 -and $st10.pass -gt 0) $r.out
+
+# ---- T11: v3 orphan recycle-station acceptance (n5w8 A1-A12) ----
+# A2: this call used to go through Invoke-Post, which unconditionally appends
+# -Root $Sandbox - and the orphan test's finally block deleted that external
+# root on a green run, taking the whole regression sandbox with it (the
+# run-51/0-but-exit-1 P0). The test builds its own throwaway root: call it
+# directly, with no -Root injection.
+Write-Host 'T11 v3 orphan acceptance: scan + trash + purge + restore'
+$out11 = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $ScriptsDir 'tests\test-v3-orphan.ps1') 2>&1 | Out-String
+$code11 = $LASTEXITCODE
+$st11 = $null
+if ($out11 -match 'pass=(\d+)\s+fail=(\d+)') { $st11 = @{ pass = [int]$Matches[1]; fail = [int]$Matches[2] } }
+Assert 'v3 orphan acceptance exits 0, all assertions green' ($code11 -eq 0 -and $st11 -and $st11.fail -eq 0 -and $st11.pass -gt 0) $out11
+
 # ---- summary ----
 Write-Host ''
 Write-Host ('result: pass=' + $script:Pass + ' fail=' + $script:Fail)
@@ -222,5 +253,5 @@ if ($script:Fail -gt 0) {
     exit 1
 }
 if ($KeepSandbox) { Write-Host ('sandbox kept: ' + $Sandbox) }
-else { Remove-Item -LiteralPath $Sandbox -Recurse -Force }
+elseif (Test-Path -LiteralPath $Sandbox) { Remove-Item -LiteralPath $Sandbox -Recurse -Force }   # A2: a test may legitimately have consumed it already
 exit 0

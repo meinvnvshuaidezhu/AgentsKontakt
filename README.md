@@ -1,8 +1,28 @@
-﻿# AgentsKontakt · 运维手册（人读）
+﻿# AgentsKontakt · 本机跨应用 AI 信箱
 
-AI agent 请从 [AGENTS.md](AGENTS.md) 进入（场景化操作 SOP 见 [docs\Agent操作指引.md](docs/Agent操作指引.md)）；agent 行为准则见 [PROTOCOL.md](PROTOCOL.md)。
+使用方法：安装项目完成后，打开 AGENT，输入：查询本机上的 AgentsKontakt 并且接入。
 
-## 30 秒上手
+> 只有在项目中注册完成的 AGENT 才能互相通信。已知问题见 [docs\已知问题.md](docs/已知问题.md)。
+
+消息 = 一个 md 文件；脚本 = 邮局；agent 只负责读信、干活、写回信。AI agent 请从 [AGENTS.md](AGENTS.md) 进入（场景化操作 SOP 见 [docs\Agent操作指引.md](docs/Agent操作指引.md)）；agent 行为准则见 [PROTOCOL.md](PROTOCOL.md)。开源许可见 [LICENSE](LICENSE)（MIT）。
+
+## 为什么做这个
+
+- 每家 AI agent 互不互通，能力和免费额度各异；跨 agent 开发同一项目，信息全靠人工搬运，还搬不全。
+- 本项目最初打算直接调用各厂商的无头 CLI 让 agent 直接对话，但每家 CLI 各有限定，于是退而求其次，改用邮局投递的方式实现 agent 互通。
+
+## 带来什么
+
+- 不用再在多个 agent 之间手动复制搬运，沟通和处理全程由 agent 自行完成。
+- 打破 agent 壁垒，理论上适配所有 agent。
+- 可以多个 agent 同时推进一个项目，按需选择各家的模型。
+- 代价：最低配的投递方式下，人需要当投递员帮 agent 收信——但也可以在自己的项目里唤起 agent 阅读对应的通信邮件，实现多 agent 并行开发。
+
+## 目标
+
+多 agent 互相调用、互相处理，人类只需动动手指。有更好的方案欢迎 issue 交流。
+
+## 30 秒上手（运维细节）
 
 ### 方式 A：安装成应用（推荐，开源/分发用）
 
@@ -92,7 +112,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\defender-exclusi
 ```powershell
 # 只要失败重试：计划任务每 30 分钟跑一次 cleanup（幂等，重排队死掉的处理会话）
 schtasks /Create /TN "CrossAgentMailboxCleanup" /SC MINUTE /MO 30 /RL LIMITED ^
-  /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'E:\AgentsKontakt\scripts\cleanup.ps1'" /F
+  /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File '<项目根>\scripts\cleanup.ps1'" /F
 
 # 或要完整兜底（对账重扫+超时重排队）：手动跑 watch.ps1（有控制台窗口）
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\watch.ps1
@@ -176,7 +196,7 @@ archive\
 | journal 大量重复 WARN | 不会发生：route 用 `logs\routed\*.flag` 保证每条消息只 WARN 一次 |
 | 疑似丢事件 | 对账每 60 秒全扫 inbox；watch 重启时也会全扫，不丢信 |
 | 中文乱码 | 数据文件保持 UTF-8；脚本一律 ASCII |
-| 托盘图标不出现 / 双击邮差无反应 | ① 查 `logs\app.log` 的 `tray NIM_ADD=True/False`（原生托盘会把成败写日志）；② False 且换目录（如复制 exe 到 Temp）就成功 → 检查项目根目录 ACL 是否残留 deny 项或低完整性标签（`icacls E:\AgentsKontakt`），2026-10-26 曾因整改阶段 5 的 ACL 实验残留 `Everyone:(DENY)(DC)` + Low integrity 标签导致 shell 拒绝该子树下一切程序的托盘注册（用 `icacls /remove:d` + `/setintegritylevel M` 修复）；③ 双击无反应但进程秒退 → 单实例互斥体被强杀实例遗弃（已修复：遗弃可自动接管） |
+| 托盘图标不出现 / 双击邮差无反应 | ① 查 `logs\app.log` 的 `tray NIM_ADD=True/False`（原生托盘会把成败写日志）；② False 且换目录（如复制 exe 到 Temp）就成功 → 检查项目根目录 ACL 是否残留 deny 项或低完整性标签（`icacls <项目根>`），2026-10-26 曾因整改阶段 5 的 ACL 实验残留 `Everyone:(DENY)(DC)` + Low integrity 标签导致 shell 拒绝该子树下一切程序的托盘注册（用 `icacls /remove:d` + `/setintegritylevel M` 修复）；③ 双击无反应但进程秒退 → 单实例互斥体被强杀实例遗弃（已修复：遗弃可自动接管） |
 
 ## scripts\ 目录分层
 

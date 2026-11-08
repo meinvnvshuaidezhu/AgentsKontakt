@@ -1,0 +1,1 @@
+﻿NEW-MAIL: {path} - 你有一条新的跨应用消息待处理。请读取上述消息文件，严格遵循通讯根目录下的 PROTOCOL.md 完成本轮：理解请求、完成工作、将回复写入自己 outbox、调用 scripts\send.ps1 投递（type=reply，in_reply_to=原消息id）。处理期间必须用心跳让对方知道你活着：认领后立即跑一次 scripts\progress.ps1 -File "<上述消息路径>" -Note "<一句话进度>"，之后每个关键节点（理解完请求/方案确定/执行中/即将回信）各写一条，冷却中也不要沉默超过几分钟。

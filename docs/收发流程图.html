@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentsKontakt 收发流程图</title>
+<style>
+  :root{
+    --bg:#fafafa; --fg:#1c1c1a; --muted:#70706a; --line:#8a8a84; --border:#e2e2dd; --card:#ffffff;
+    --blue:#2563eb;  --blue-bg:rgba(37,99,235,.10);  --blue-bd:rgba(37,99,235,.38);
+    --purple:#7c3aed;--purple-bg:rgba(124,58,237,.10);--purple-bd:rgba(124,58,237,.38);
+    --green:#059669; --green-bg:rgba(5,150,105,.10); --green-bd:rgba(5,150,105,.42);
+    --slate:#475569; --slate-bg:rgba(71,85,105,.12); --slate-bd:rgba(71,85,105,.42);
+    --red:#dc2626;   --red-bg:rgba(220,38,38,.10);   --red-bd:rgba(220,38,38,.48);
+    --warn:#d97706;  --warn-bg:rgba(217,119,6,.12);  --warn-bd:rgba(217,119,6,.45);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#161615; --fg:#ececea; --muted:#a3a39b; --line:#8f8f88; --border:#34342f; --card:#1f1f1e;
+      --blue:#60a5fa;  --blue-bg:rgba(96,165,250,.15); --blue-bd:rgba(96,165,250,.48);
+      --purple:#a78bfa;--purple-bg:rgba(167,139,250,.15);--purple-bd:rgba(167,139,250,.48);
+      --green:#34d399; --green-bg:rgba(52,211,153,.15); --green-bd:rgba(52,211,153,.48);
+      --slate:#94a3b8; --slate-bg:rgba(148,163,184,.15);--slate-bd:rgba(148,163,184,.48);
+      --red:#f87171;   --red-bg:rgba(248,113,113,.14); --red-bd:rgba(248,113,113,.55);
+      --warn:#fbbf24;  --warn-bg:rgba(251,191,36,.15); --warn-bd:rgba(251,191,36,.5);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:28px 16px 48px;background:var(--bg);color:var(--fg);
+       font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+       display:flex;flex-direction:column;align-items:center}
+  header{max-width:920px;width:100%}
+  h1{font-size:22px;margin:0 0 6px;font-weight:600}
+  .sub{margin:0 0 14px;color:var(--muted);font-size:13px;line-height:1.7}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;margin-bottom:18px}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:12px;height:12px;border-radius:3px;display:inline-block}
+  .fig{max-width:920px;width:100%;background:var(--card);border:1px solid var(--border);
+       border-radius:14px;padding:18px 10px}
+  svg{width:100%;height:auto;display:block}
+  .node .box{fill:var(--cbg);stroke:var(--cbd);stroke-width:1.2;transition:stroke-width .12s}
+  .node:hover .box{stroke-width:2.2}
+  .node .m{font-size:14px;font-weight:600;fill:var(--fg)}
+  .node .s{font-size:12px;fill:var(--muted)}
+  .node .num{font-size:15px;font-weight:600;fill:var(--c)}
+  .node .tag{font-size:11px;fill:var(--muted)}
+  .flow{stroke:var(--line);stroke-width:1.6;marker-end:url(#ag)}
+  .bad{stroke:var(--red);stroke-width:1.6;stroke-dasharray:6 4;marker-end:url(#ar)}
+  .warnline{stroke:var(--warn);stroke-width:1.6;stroke-dasharray:6 4;marker-end:url(#aw)}
+  .lb{font-size:12px;fill:var(--muted);paint-order:stroke;stroke:var(--card);stroke-width:4px;stroke-linejoin:round}
+  .lbr{font-size:12px;fill:var(--red);font-weight:600;paint-order:stroke;stroke:var(--card);stroke-width:4px;stroke-linejoin:round}
+  .lbw{font-size:12px;fill:var(--warn);font-weight:600;paint-order:stroke;stroke:var(--card);stroke-width:4px;stroke-linejoin:round}
+  .phase{font-size:13px;font-weight:600;fill:var(--muted)}
+  .phase-line{stroke:var(--border);stroke-width:1;stroke-dasharray:3 4}
+  .rules{max-width:920px;width:100%;display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}
+  .rules div{background:var(--card);border:1px solid var(--border);border-radius:10px;
+             padding:10px 12px;font-size:12px;color:var(--muted);line-height:1.6}
+  .rules b{display:block;color:var(--fg);font-size:13px;margin-bottom:2px;font-weight:600}
+  @media (max-width:720px){.rules{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<header>
+  <h1>AgentsKontakt 收发流程图</h1>
+  <p class="sub">投递＝<b>复制留正本</b>：副本进收件人信箱，正本转入发件人「在途区（未完成信件）」，登记<b>状态＋最后变化时间</b>；投递员两道核对闸不过即回退发件人并注明理由；联系成功即回执，此后持续监控、变化即回写即汇报，<b>最后变化时间超过时限→判滞留，报发件人处置（催办/重发/结案）</b>——未完成信件不再静默丢失。回信走同一条链；归档仅限发起人，收拢正本与副本。悬停节点可查看规则说明。</p>
+  <div class="legend">
+    <span><i class="dot" style="background:var(--blue-bg);border:1px solid var(--blue-bd)"></i>发信人（甲·话题发起方）</span>
+    <span><i class="dot" style="background:var(--purple-bg);border:1px solid var(--purple-bd)"></i>投递员（邮局）</span>
+    <span><i class="dot" style="background:var(--green-bg);border:1px solid var(--green-bd)"></i>收信人（乙·回答方）</span>
+    <span><i class="dot" style="background:var(--slate-bg);border:1px solid var(--slate-bd)"></i>归档（不可变）</span>
+    <span><i class="dot" style="background:var(--red-bg);border:1px solid var(--red-bd)"></i>回退/拒绝（附理由）</span>
+    <span><i class="dot" style="background:var(--warn-bg);border:1px solid var(--warn-bd)"></i>超时判滞·处置</span>
+  </div>
+</header>
+
+<div class="fig">
+<svg viewBox="0 0 880 1236" role="img" aria-label="AgentsKontakt 三角色收发流程图：草稿带信封、落发件箱交寄、取件核对、按序联系收件方式、复制投递（正本留甲在途区登记状态与最后变化时间、副本进乙收信箱）并回执发件人、监控在途信件变化即回写即汇报、超时判滞报发件人处置、收件方处理并写回信、回信重复同一条核对链送达甲、发起方确认解决后写归档信、投递员核对归档人身份后收拢正本与副本执行归档；核对不过、信道不通、归档人不符均回退并注明理由">
+  <defs>
+    <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="var(--line)"/></marker>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="var(--red)"/></marker>
+    <marker id="aw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="var(--warn)"/></marker>
+  </defs>
+
+  <text class="phase" x="40" y="30">阶段一 · 求援信下行（甲 → 乙）</text>
+
+  <!-- 主线箭头 -->
+  <line class="flow" x1="300" y1="114" x2="300" y2="142"/>
+  <line class="flow" x1="300" y1="210" x2="300" y2="238"/>
+  <line class="flow" x1="300" y1="318" x2="300" y2="334"/>
+  <line class="flow" x1="300" y1="414" x2="300" y2="430"/>
+  <text class="lb" x="312" y="426" text-anchor="start">敲响</text>
+  <line class="flow" x1="300" y1="498" x2="300" y2="526"/>
+  <line class="flow" x1="300" y1="594" x2="300" y2="622"/>
+  <line class="flow" x1="300" y1="690" x2="300" y2="738"/>
+  <line class="flow" x1="300" y1="806" x2="300" y2="834"/>
+  <text class="lb" x="312" y="824" text-anchor="start">同一条核对链</text>
+  <line class="flow" x1="300" y1="902" x2="300" y2="950"/>
+  <line class="flow" x1="300" y1="1018" x2="300" y2="1046"/>
+  <line class="flow" x1="300" y1="1126" x2="300" y2="1142"/>
+
+  <!-- 异常分支（红·均注明理由） -->
+  <line class="bad" x1="452" y1="280" x2="583" y2="292"/>
+  <text class="lbr" x="508" y="272" text-anchor="middle">核对不过</text>
+  <line class="bad" x1="452" y1="376" x2="583" y2="314"/>
+  <text class="lbr" x="519" y="342" text-anchor="middle">信道不通</text>
+  <line class="bad" x1="452" y1="1088" x2="583" y2="1088"/>
+  <text class="lbr" x="519" y="1078" text-anchor="middle">归档人≠发起人</text>
+
+  <!-- 超时判滞（琥珀·处置） -->
+  <line class="warnline" x1="452" y1="556" x2="583" y2="556"/>
+  <text class="lbw" x="519" y="546" text-anchor="middle">超过时限·无变化</text>
+
+  <!-- ① 写草稿（甲） -->
+  <g class="node" style="--c:var(--blue);--cbg:var(--blue-bg);--cbd:var(--blue-bd)" transform="translate(150,52)">
+    <title>草稿即带信封：在笔记区写草稿时就写明当前发信人、收件人，进入发件箱前信封已完整。</title>
+    <rect class="box" width="300" height="60" rx="12"/>
+    <text class="num" x="18" y="26">①</text>
+    <text class="tag" x="284" y="19" text-anchor="end">草稿</text>
+    <text class="m" x="150" y="28" text-anchor="middle">笔记区写草稿</text>
+    <text class="s" x="150" y="47" text-anchor="middle">写明当前发信人·收件人（信封随草稿）</text>
+  </g>
+
+  <!-- ② 落发件箱＝交寄（甲） -->
+  <g class="node" style="--c:var(--blue);--cbg:var(--blue-bg);--cbd:var(--blue-bd)" transform="translate(150,148)">
+    <title>甲1｜落正式名＝取件铃：通知邮局内容已完整、可以取件。</title>
+    <rect class="box" width="300" height="60" rx="12"/>
+    <text class="num" x="18" y="26">②</text>
+    <text class="tag" x="284" y="19" text-anchor="end">甲1</text>
+    <text class="m" x="150" y="28" text-anchor="middle">文件进入发件箱＝交寄</text>
+    <text class="s" x="150" y="47" text-anchor="middle">正式名＝取件铃·邮局开始可取</text>
+  </g>
+
+  <!-- ③ 取件核对（邮局·判定） -->
+  <g class="node" style="--c:var(--purple);--cbg:var(--purple-bg);--cbd:var(--purple-bd)" transform="translate(150,244)">
+    <title>甲2｜投递员取件两查：①最新一封的发件人与发件箱主人是否一致（防冒写）；②收件人是否已在通讯录注册。任一不过→退回发件人，注明回退理由。</title>
+    <path class="box" d="M150,0 L300,36 L150,72 L0,36 Z"/>
+    <text class="num" x="30" y="42">③</text>
+    <text class="tag" x="312" y="64" text-anchor="start">甲2</text>
+    <text class="m" x="150" y="34" text-anchor="middle">取件核对（信封）</text>
+    <text class="s" x="150" y="52" text-anchor="middle">发件人＝箱主？收件人已注册？</text>
+  </g>
+
+  <!-- 回退发件人（异常终点） -->
+  <g class="node" style="--c:var(--red);--cbg:var(--red-bg);--cbd:var(--red-bd)" transform="translate(590,270)">
+    <title>回退｜信退回发件人信箱并附回退理由（冒写/未注册/信道不通）；发件人改正后重新交寄，重走核对链。</title>
+    <rect class="box" width="260" height="60" rx="12"/>
+    <text class="m" x="130" y="28" text-anchor="middle">回退至发件人</text>
+    <text class="s" x="130" y="47" text-anchor="middle">注明回退理由·改正后重新交寄</text>
+  </g>
+
+  <!-- ④ 按序联系（邮局·判定） -->
+  <g class="node" style="--c:var(--purple);--cbg:var(--purple-bg);--cbd:var(--purple-bd)" transform="translate(150,340)">
+    <title>甲3｜查通讯录中收件人的联系方式并按优先级依次联系：拉起命令＞网络钩子＞邮件通知，敲响即停；整链敲不响→退回发件方，注明理由。</title>
+    <path class="box" d="M150,0 L300,36 L150,72 L0,36 Z"/>
+    <text class="num" x="30" y="42">④</text>
+    <text class="tag" x="312" y="64" text-anchor="start">甲3</text>
+    <text class="m" x="150" y="34" text-anchor="middle">按序联系收件方式</text>
+    <text class="s" x="150" y="52" text-anchor="middle">可联？拉起＞钩子＞邮件</text>
+  </g>
+
+  <!-- ⑤ 复制投递＋回执（邮局） -->
+  <g class="node" style="--c:var(--purple);--cbg:var(--purple-bg);--cbd:var(--purple-bd)" transform="translate(150,436)">
+    <title>甲2·甲3｜投递改为复制：副本整信移动进乙收信箱；正本从发件箱转入甲「在途区（未完成信件）」，登记当前状态与最后变化时间；同时给发件人回复「投递成功」消息。甲可随时查在途正本的状态，无需等汇报。</title>
+    <rect class="box" width="300" height="60" rx="12"/>
+    <text class="num" x="18" y="26">⑤</text>
+    <text class="tag" x="284" y="19" text-anchor="end">甲2</text>
+    <text class="m" x="150" y="28" text-anchor="middle">复制投递·回执「投递成功」</text>
+    <text class="s" x="150" y="47" text-anchor="middle">正本留甲在途区·副本进乙收信箱</text>
+  </g>
+
+  <!-- ⑥ 监控在途（邮局·持续） -->
+  <g class="node" style="--c:var(--purple);--cbg:var(--purple-bg);--cbd:var(--purple-bd)" transform="translate(150,532)">
+    <title>追踪｜等待回复期间监控收件方动态，每有变化（认领/处理/心跳/回信）同步回写甲在途正本的状态与最后变化时间，并即时汇报发件人；心跳超时且无申报→判假死退件重排。</title>
+    <rect class="box" width="300" height="60" rx="12"/>
+    <text class="num" x="18" y="26">⑥</text>
+    <text class="tag" x="284" y="19" text-anchor="end">监控</text>
+    <text class="m" x="150" y="28" text-anchor="middle">监控在途·状态实时回写甲</text>
+    <text class="s" x="150" y="47" text-anchor="middle">认领/处理/心跳变化→更新时间并汇报</text>
+  </g>
+
+  <!-- 滞留处置（超时终点·琥珀） -->
+  <g class="node" style="--c:var(--warn);--cbg:var(--warn-bg);--cbd:var(--warn-bd)" transform="translate(590,526)">
+    <title>判滞｜在途正本的最后变化时间超过时限（无心跳/无进展）→ 投递员报发件人并给处置选项：催办、重发或结案。未完成信件不会静默丢失——正本始终在甲的在途区可查。</title>
+    <rect class="box" width="260" height="60" rx="12"/>
+    <text class="m" x="130" y="28" text-anchor="middle">滞留处置·报发件人</text>
+    <text class="s" x="130" y="47" text-anchor="middle">催办 / 重发 / 结案·由甲决定</text>
+  </g>
+
+  <!-- ⑦ 收件方处理（乙） -->
+  <g class="node" style="--c:var(--green);--cbg:var(--green-bg);--cbd:var(--green-bd)" transform="translate(150,628)">
+    <title>甲3｜收件方干活：推理与想法记入自己笔记区（私有，邮局不取不搬不归档）；不改来信、不碰他人信箱。</title>
+    <rect class="box" width="300" height="60" rx="12"/>
+    <text class="num" x="18" y="26">⑦</text>
+    <text class="tag" x="284" y="19" text-anchor="end">甲3</text>
+    <text class="m" x="150" y="28" text-anchor="middle">收件方处理·干活＋心跳</text>
+    <text class="s" x="150" y="47" text-anchor="middle">私有思考入笔记区·不碰来信</text>
+  </g>
+
+  <line class="phase-line" x1="20" y1="708" x2="860" y2="708"/>
+  <text class="phase" x="40" y="726">阶段二 · 回信上行（乙 → 甲，重复同一条核对链）</text>
+
+  <!-- ⑧ 写回信交寄（乙＝发信人） -->
+  <g class="node" style="--c:var(--green);--cbg:var(--green-bg);--cbd:var(--green-bd)" transform="translate(150,744)">
+    <title>新信｜回信是一封新信，此刻乙是发信人；写完落入自己发件箱，重复流程②③④⑤：同一套信封核对＋按序联系＋复制投递（回信的正本同样留乙在途区、副本进甲收信箱）。</title>
+    <rect class="box" width="300" height="60" rx="12" stroke-width="1.8"/>
+    <text class="num" x="18" y="26">⑧</text>
+    <text class="tag" x="284" y="19" text-anchor="end">新信</text>
+    <text class="m" x="150" y="28" text-anchor="middle">发件方完成写入·投递发件箱</text>
+    <text class="s" x="150" y="47" text-anchor="middle">回信＝新信·此刻乙＝发信人</text>
+  </g>
+
+  <!-- ⑨ 回信送达（邮局） -->
+  <g class="node" style="--c:var(--purple);--cbg:var(--purple-bg);--cbd:var(--purple-bd)" transform="translate(150,840)">
+    <title>甲2｜回信经同一条核对链送达甲收信箱；送达后甲在途正本的状态更新为「已回信」（信件仍未完成，直到结案）。</title>
+    <rect class="box" width="300" height="60" rx="12"/>
+    <text class="num" x="18" y="26">⑨</text>
+    <text class="tag" x="284" y="19" text-anchor="end">甲2</text>
+    <text class="m" x="150" y="28" text-anchor="middle">回信投进甲收信箱</text>
+    <text class="s" x="150" y="47" text-anchor="middle">同一套核对·甲在途状态→「已回信」</text>
+  </g>
+
+  <line class="phase-line" x1="20" y1="920" x2="860" y2="920"/>
+  <text class="phase" x="40" y="938">阶段三 · 结案归档（仅话题发起人可归档）</text>
+
+  <!-- ⑩ 确认解决·写归档信（甲） -->
+  <g class="node" style="--c:var(--blue);--cbg:var(--blue-bg);--cbd:var(--blue-bd)" transform="translate(150,956)">
+    <title>甲5｜问题发起方确认问题已经解决，在信件中写入「归档」指令，交发件箱。</title>
+    <rect class="box" width="300" height="60" rx="12"/>
+    <text class="num" x="18" y="26">⑩</text>
+    <text class="tag" x="284" y="19" text-anchor="end">甲5</text>
+    <text class="m" x="150" y="28" text-anchor="middle">发起方确认问题已解决</text>
+    <text class="s" x="150" y="47" text-anchor="middle">信件中写入「归档」·交发件箱</text>
+  </g>
+
+  <!-- ⑪ 归档身份核对（邮局·判定） -->
+  <g class="node" style="--c:var(--purple);--cbg:var(--purple-bg);--cbd:var(--purple-bd)" transform="translate(150,1052)">
+    <title>归档闸｜投递员收取归档申请，核对归档整理人与问题发起人一致才允许归档；不一致→拒绝归档，退回申请并注明理由。</title>
+    <path class="box" d="M150,0 L300,36 L150,72 L0,36 Z"/>
+    <text class="num" x="30" y="42">⑪</text>
+    <text class="tag" x="312" y="64" text-anchor="start">归档闸</text>
+    <text class="m" x="150" y="34" text-anchor="middle">投递员收取·核对身份</text>
+    <text class="s" x="150" y="52" text-anchor="middle">归档整理人＝问题发起人？</text>
+  </g>
+
+  <!-- 拒绝归档（异常终点） -->
+  <g class="node" style="--c:var(--red);--cbg:var(--red-bg);--cbd:var(--red-bd)" transform="translate(590,1058)">
+    <title>拒绝归档｜归档整理人与问题发起人不一致→拒绝，退回申请并注明理由；只有发起人可结案归档。</title>
+    <rect class="box" width="260" height="60" rx="12"/>
+    <text class="m" x="130" y="28" text-anchor="middle">拒绝归档</text>
+    <text class="s" x="130" y="47" text-anchor="middle">退回申请·注明理由</text>
+  </g>
+
+  <!-- ⑫ 执行归档 -->
+  <g class="node" style="--c:var(--slate);--cbg:var(--slate-bg);--cbd:var(--slate-bd)" transform="translate(150,1148)">
+    <title>甲5｜核对通过后执行：收拢该话题全部信件（甲乙双方的正本与副本按编号去重）与心跳，补全摘要信件头（不代写正文）；归档不可变＝唯一权威历史。</title>
+    <rect class="box" width="300" height="60" rx="12"/>
+    <text class="num" x="18" y="26">⑫</text>
+    <text class="tag" x="284" y="19" text-anchor="end">甲5</text>
+    <text class="m" x="150" y="28" text-anchor="middle">此文档归档</text>
+    <text class="s" x="150" y="47" text-anchor="middle">收拢正本＋副本·补摘要·不可变</text>
+  </g>
+</svg>
+</div>
+
+<section class="rules">
+  <div><b>投递＝复制留正本</b>副本进收件箱；正本转发件人「在途区（未完成信件）」，随时可查，永不静默丢失。</div>
+  <div><b>状态＋最后变化时间</b>在途正本随投递、认领、处理、回信实时更新，用「距上次变化多久」判断是否时间过长。</div>
+  <div><b>超时判滞→处置</b>最后变化时间超过时限即报发件人：催办、重发或结案，由发件人决定。</div>
+  <div><b>回退必附理由·归档＝发起人特权</b>三道闸（信封/信道/归档身份）不过即退回注明理由；收拢正本与副本。</div>
+</section>
+</body>
+</html>

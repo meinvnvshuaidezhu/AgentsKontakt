@@ -1,0 +1,8 @@
+﻿{
+  "//": "Post-office tunables, read via Get-SystemConfig. rotate_* / stream_retention_days: cleanup.ps1 log & mirror hygiene. sys_retention_days: age at which sys-* service mail (receipts, stall reports) is purged from inbox/processing, together with orphan .progress sidecars. dead_after_dispatches: wake attempts before route.ps1 returns a letter to its sender (0 = never return). poll_hooks: agents rung by the watch loop on inbox arrival (2s debounce, {count}/{agent}/{root} placeholders) - replaces per-minute poll.py scheduled tasks on this host; poll.py itself stays for agent-hosted scheduling. Delete keys to fall back to defaults.",
+  "rotate_size_mb": 2,
+  "rotate_keep": 4,
+  "stream_retention_days": 7,
+  "sys_retention_days": 1,
+  "dead_after_dispatches": 3
+}

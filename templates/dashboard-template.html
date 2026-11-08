@@ -1,0 +1,446 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentsKontakt 邮差面板</title>
+<style>
+  /* shadcn/ui-inspired tokens (zinc dark + indigo accent) */
+  :root{
+    --bg:#09090b; --card:#101013; --card-2:#151519; --hover:#17171c;
+    --line:#26262b; --line-2:#303036;
+    --fg:#fafafa; --muted:#a1a1aa; --faint:#71717a;
+    --accent:#6366f1; --accent-fg:#e0e7ff; --accent-soft:rgba(99,102,241,.14);
+    --ok:#34d399; --ok-soft:rgba(52,211,153,.12);
+    --warn:#fbbf24; --warn-soft:rgba(251,191,36,.12);
+    --bad:#fb7185; --bad-soft:rgba(251,113,133,.12);
+    --info:#38bdf8; --info-soft:rgba(56,189,248,.12);
+    --r-lg:14px; --r-md:10px; --r-sm:8px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--fg); overflow:hidden;
+    font-family:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Microsoft YaHei",sans-serif;
+    font-size:13.5px; line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-thumb{background:#2a2a30;border-radius:3px}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  .app{display:flex;flex-direction:column;height:100vh}
+
+  /* header */
+  header{
+    height:52px;flex:0 0 auto;display:flex;align-items:center;gap:12px;
+    padding:0 18px;border-bottom:1px solid var(--line);background:var(--bg);
+  }
+  .brand{display:flex;align-items:center;gap:10px;font-weight:600;letter-spacing:.2px}
+  .brand .glyph{
+    width:26px;height:26px;border-radius:var(--r-sm);background:var(--accent-soft);
+    display:flex;align-items:center;justify-content:center;font-size:14px;
+  }
+  .brand .sub{color:var(--faint);font-weight:400;font-size:12px;margin-left:2px}
+  .h-right{margin-left:auto;display:flex;align-items:center;gap:12px}
+  .pill{
+    display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 11px;
+    border:1px solid var(--line);border-radius:999px;font-size:12px;color:var(--muted);
+  }
+  .pill .dot{width:7px;height:7px;border-radius:50%;background:var(--faint)}
+  .pill.ok{color:var(--ok);border-color:rgba(52,211,153,.35);background:var(--ok-soft)}
+  .pill.ok .dot{background:var(--ok);animation:pulse 2s infinite}
+  .pill.bad{color:var(--bad);border-color:rgba(251,113,133,.35);background:var(--bad-soft)}
+  .pill.bad .dot{background:var(--bad)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .genned{color:var(--faint);font-size:11.5px}
+
+  /* layout */
+  main{flex:1;display:grid;grid-template-columns:300px 1fr 316px;min-height:0}
+  .pane{overflow-y:auto;padding:14px;min-height:0}
+  .pane.left{border-right:1px solid var(--line)}
+  .pane.right{border-left:1px solid var(--line)}
+
+  .sec{font-size:11px;letter-spacing:.12em;color:var(--faint);margin:2px 0 10px 4px}
+
+  /* contacts */
+  .contact{
+    display:flex;gap:11px;align-items:center;padding:9px 10px;border-radius:var(--r-md);
+    cursor:pointer;border:1px solid transparent;margin-bottom:2px;
+  }
+  .contact:hover{background:var(--hover)}
+  .contact.active{background:var(--accent-soft);border-color:rgba(99,102,241,.35)}
+  .ava{
+    width:36px;height:36px;border-radius:50%;background:var(--card-2);border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;font-size:17px;flex:0 0 auto;overflow:hidden;
+  }
+  .ava img{width:100%;height:100%;object-fit:cover}
+  .c-main{flex:1;min-width:0}
+  .c-row{display:flex;justify-content:space-between;align-items:baseline;gap:6px}
+  .c-name{font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .c-time{color:var(--faint);font-size:11px;flex:0 0 auto}
+  .c-sub{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12px;min-width:0}
+  .c-sub .txt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .stx{font-weight:600}
+  .stx.ok{color:var(--ok)}
+  .stx.warn{color:var(--warn)}
+  .stx.bad{color:var(--bad)}
+  .badge{
+    display:inline-flex;align-items:center;height:17px;padding:0 7px;border-radius:999px;
+    font-size:10.5px;font-weight:600;background:var(--accent);color:#fff;flex:0 0 auto;
+  }
+  .badge.alert{background:var(--bad)}
+  .badge-count{display:inline-flex;align-items:center;height:17px;padding:0 7px;border-radius:999px;
+    font-size:10.5px;font-weight:600;background:var(--accent-soft);color:var(--accent-fg);border:1px solid rgba(99,102,241,.4)}
+
+  /* chat */
+  .chat-head{display:flex;align-items:center;gap:11px;margin-bottom:14px}
+  .chat-head .ava{width:42px;height:42px;font-size:19px}
+  .chat-name{font-weight:600}
+  .chat-meta{color:var(--muted);font-size:12px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tdiv{display:flex;align-items:center;gap:10px;margin:18px 0 12px;color:var(--faint);font-size:11.5px}
+  .tdiv::before,.tdiv::after{content:"";flex:1;height:1px;background:var(--line)}
+  .msg{display:flex;gap:10px;margin-bottom:14px}
+  .msg.mine{flex-direction:row-reverse}
+  .msg .ava{width:30px;height:30px;font-size:14px;border-radius:var(--r-sm)}
+  .msg .col{min-width:0;max-width:660px}
+  .msg.mine .col{display:flex;flex-direction:column;align-items:flex-end}
+  .who{color:var(--faint);font-size:11px;margin-bottom:3px}
+  .bubble{
+    background:var(--card-2);border:1px solid var(--line);border-radius:var(--r-lg);
+    border-top-left-radius:4px;padding:9px 13px;font-size:13.5px;color:var(--fg);
+    white-space:pre-wrap;word-break:break-word;
+  }
+  .msg.mine .bubble{background:rgba(99,102,241,.10);border-color:rgba(99,102,241,.38);border-top-left-radius:var(--r-lg);border-top-right-radius:4px}
+  .tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+  .chip{
+    display:inline-flex;align-items:center;height:20px;padding:0 9px;border-radius:999px;
+    border:1px solid var(--line);color:var(--muted);font-size:11px;background:var(--card);
+  }
+  .chip.live{color:var(--warn);border-color:rgba(251,191,36,.35);background:var(--warn-soft)}
+
+  /* right cards */
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:13px 14px;margin-bottom:12px;
+  }
+  .id-card{display:flex;align-items:center;gap:11px;margin-bottom:9px}
+  .id-card .ava{width:40px;height:40px;font-size:18px}
+  .id-name{font-weight:600}
+  .id-role{color:var(--faint);font-size:11.5px;margin-top:1px}
+  .tag{display:inline-flex;align-items:center;height:21px;padding:0 9px;border-radius:999px;font-size:11px;font-weight:500}
+  .tag.ok{color:var(--ok);background:var(--ok-soft);border:1px solid rgba(52,211,153,.3)}
+  .tag.warn{color:var(--warn);background:var(--warn-soft);border:1px solid rgba(251,191,36,.3)}
+  .tag.info{color:var(--info);background:var(--info-soft);border:1px solid rgba(56,189,248,.3)}
+  .tag.bad{color:var(--bad);background:var(--bad-soft);border:1px solid rgba(251,113,133,.3)}
+  .tag.mute{color:var(--muted);background:var(--card-2);border:1px solid var(--line)}
+  .kv{font-size:12.5px;color:var(--muted);line-height:1.9;word-break:break-all}
+  .kv b{color:var(--fg);font-weight:600}
+  .row-line{font-size:12.5px;color:var(--muted);padding:7px 0;border-bottom:1px solid var(--line);word-break:break-all;line-height:1.6}
+  .row-line:last-child{border-bottom:none}
+  .row-line .t{color:var(--faint);font-size:11px;margin-right:7px}
+  .row-line b{color:var(--fg);font-weight:600}
+  .row-line.bad{color:var(--bad)}
+  .row-line.bad b{color:var(--bad)}
+  .empty{color:var(--faint);font-size:12.5px}
+  .empty-hero{color:var(--faint);text-align:center;padding:80px 20px;font-size:13px}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand"><span class="glyph">✉</span>AgentsKontakt<span class="sub">邮差面板</span></div>
+    <div class="h-right">
+      <span class="pill" id="daemonPill"><span class="dot"></span><span id="daemonText">邮差状态未知</span></span>
+      <span class="genned" id="genTime"></span>
+    </div>
+  </header>
+  <main>
+    <section class="pane left">
+      <div class="sec">通讯录 · 会话</div>
+      <div id="agentList"></div>
+    </section>
+    <section class="pane mid">
+      <div id="emptyPane" class="empty-hero">从左侧选择一个 agent 查看会话</div>
+      <div id="chatPane" hidden>
+        <div class="chat-head">
+          <div class="ava" id="hAva"></div>
+          <div style="min-width:0">
+            <div class="chat-name" id="hName"></div>
+            <div class="chat-meta" id="hMeta"></div>
+          </div>
+        </div>
+        <div id="msgs"></div>
+      </div>
+    </section>
+    <section class="pane right">
+      <div class="card">
+        <div class="sec" style="margin-top:0">提问者</div>
+        <div id="askerBody" class="empty">未选择</div>
+      </div>
+      <div class="card">
+        <div class="sec" style="margin-top:0">回答者</div>
+        <div id="answererBody" class="empty">未选择</div>
+      </div>
+      <div class="card">
+        <div class="sec" style="margin-top:0">实时心跳 · 处理中</div>
+        <div id="beats" class="empty">无进行中的任务</div>
+      </div>
+      <div class="card">
+        <div class="sec" style="margin-top:0">在途信件 · 未结案</div>
+        <div id="inflight" class="empty">无</div>
+      </div>
+    </section>
+  </main>
+</div>
+<script>
+'use strict';
+var LOCAL = null;
+var selected = null;
+
+function esc(s){return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function avaHtml(a){var s=(a==null?'':String(a));if(s.indexOf('img:')===0)return '<img src="'+esc(s.substring(4))+'" alt="">';return esc(s);}
+function hhmm(iso){var d=new Date(iso);if(isNaN(d))return'';return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2);}
+function fresh(iso,minutes){if(!iso)return false;var d=new Date(iso);if(isNaN(d))return false;
+  return (Date.now()-d.getTime())<minutes*60000;}
+function agentInfo(name){return (window.DASHBOARD_DATA&&window.DASHBOARD_DATA.agents||[]).filter(function(a){return a.name===name;})[0]||null;}
+function chatOf(peer){return (window.DASHBOARD_DATA&&window.DASHBOARD_DATA.chats||[]).filter(function(c){return c.peer===peer;})[0]||null;}
+function statusColor(t){
+  // 配色约定：忙碌中=黄 · 空闲/等待=绿 · 等待取件/异常=红
+  if(t==='正在回信'||t==='处理中'||t==='正在处理')return'warn';
+  if(t==='等你领取'||t==='待领取'||t==='有新信待处理'||t==='STALLED'||t==='RETURNED')return'bad';
+  if(t==='空闲'||t==='正在等待'||t==='等待回信'||t==='已回复'||t==='已收到回复'||t==='已处理'||t==='DELIVERED')return'ok';
+  return'mute';
+}
+function statusTag(t){return '<span class="tag '+statusColor(t)+'">'+esc(t)+'</span>';}
+function statusOfPeer(chat){
+  if(!chat)return'空闲';
+  var working=(chat.messages||[]).some(function(m){return m.from===LOCAL&&m.state==='processing'&&fresh(m.lastProgress,15);});
+  if(working)return'正在回信';
+  if(chat.unread>0)return'等你领取';
+  return'空闲';
+}
+function roleOf(chat,name){
+  if(chat&&chat.initiator)return chat.initiator===name?'提问者':'回答者';
+  return name===LOCAL?'提问者':'回答者';
+}
+function topicInitiator(chat,topic){
+  // 该话题的开题人 = 话题内第一条 request 的 from（回合制下后续回信不算开题）
+  var ini=null;
+  (chat?chat.messages:[]).forEach(function(m){if(m.topic===topic&&m.type==='request'&&ini===null)ini=m.from;});
+  if(ini===null){(chat?chat.messages:[]).forEach(function(m){if(m.topic===topic&&ini===null)ini=m.from;});}
+  return ini;
+}
+function topicPair(chat,topic){
+  // 逐话题角色对 + 双方状态（以话题最新一条消息为准）：
+  // 回答者 = 提问者之外收到待办的一方；已回信则双方转入已回复态。
+  var msgs=(chat?chat.messages:[]).filter(function(m){return m.topic===topic;});
+  var ini=topicInitiator(chat,topic)||LOCAL;
+  var resp=(ini===LOCAL)?(chat?chat.peer:selected):LOCAL;
+  var last=msgs.length?msgs[msgs.length-1]:null;
+  var askSt='—',ansSt='—';
+  if(last){
+    if(last.type==='reply'){askSt='已收到回复';ansSt='已回复';}
+    else{
+      askSt='等待回信';
+      if(last.state==='inbox')ansSt='待领取';
+      else if(last.state==='processing')ansSt=fresh(last.lastProgress,15)?'正在处理':'处理中';
+      else if(last.state==='archive')ansSt='已处理';
+    }
+  }
+  return {asker:ini,answerer:resp,askSt:askSt,ansSt:ansSt};
+}
+
+function renderDaemon(d){
+  var pill=document.getElementById('daemonPill');
+  var txt=document.getElementById('daemonText');
+  if(fresh(d.generated,90)||hbAlive()){
+    pill.className='pill ok';txt.textContent='邮差运行中';
+  }else{
+    pill.className='pill bad';txt.textContent='邮差未响应';
+  }
+  document.getElementById('genTime').textContent='数据 '+d.generated;
+}
+
+function hbAlive(){
+  try{if(typeof window.DASHBOARD_HEARTBEAT!=='undefined'&&window.DASHBOARD_HEARTBEAT){
+    return ((new Date())-new Date(window.DASHBOARD_HEARTBEAT.replace(' ','T')))<300000;
+  }}catch(e){}
+  return false;
+}
+function renderList(d){
+  var el=document.getElementById('agentList');el.innerHTML='';
+  var chats=d.chats||[];
+  var rows=(d.agents||[]).filter(function(a){return a.name!==d.localAgent;}).sort(function(a,b){
+    var ca=chatOf(a.name),cb=chatOf(b.name);
+    var ta=ca?ca.lastTime:'',tb=cb?cb.lastTime:'';
+    if(ta!==tb)return ta<tb?1:-1;return a.name<b.name?-1:1;});
+  rows.forEach(function(a){
+    var chat=chatOf(a.name);
+    var alert=(a.alertCount||0)>0;
+    var st=(chat&&chat.unread>0)?'等你领取':(a.statusText||'空闲');
+    var lastTime=chat?hhmm(chat.lastTime):'';
+    var snippet=chat?esc(chat.lastSnippet):'（尚无往来消息）';
+    var div=document.createElement('div');
+    div.className='contact'+(selected===a.name?' active':'');
+    div.innerHTML='<div class="ava">'+avaHtml(a.avatar)+'</div>'+
+      '<div class="c-main">'+
+        '<div class="c-row"><span class="c-name">'+esc(a.name)+'</span><span class="c-time">'+lastTime+'</span></div>'+
+        '<div class="c-sub">'+
+          '<span class="txt"><span class="stx '+statusColor(st)+'">'+esc(st)+'</span> · '+snippet+'</span>'+
+          ((chat&&chat.unread>0)?'<span class="badge">'+chat.unread+' 新</span>':'')+
+          (alert?'<span class="badge alert">!</span>':'')+
+        '</div></div>';
+    div.onclick=function(){selected=a.name;renderAll(d);};
+    el.appendChild(div);
+  });
+  if(!rows.length)el.innerHTML='<div class="empty">通讯录为空</div>';
+}
+
+function topicTitle(chat,topic){
+  var subj=null;
+  (chat.messages||[]).forEach(function(x){if(x.topic===topic&&x.subject)subj=x.subject;});
+  if(subj)return subj;
+  var first=null;
+  (chat.messages||[]).forEach(function(x){if(x.topic===topic&&first===null)first=x;});
+  if(first){var line=((first.body||'').split('\n').filter(function(l){var t=l.trim();return t!==''&&t.charAt(0)!=='#';})[0])||'';
+    return line.length>30?line.substring(0,30)+'…':(line||'未命名');}
+  return'未命名';
+}
+
+function renderChat(d,chat){
+  document.getElementById('emptyPane').hidden=true;
+  document.getElementById('chatPane').hidden=false;
+  var peer=agentInfo(selected)||{avatar:selected.substring(0,1).toUpperCase(),name:selected};
+  var st=(chat&&chat.unread>0)?'等你领取':(peer.statusText||'空闲');
+  document.getElementById('hAva').innerHTML=avaHtml(peer.avatar);
+  document.getElementById('hName').textContent=selected+(chat&&chat.initiator?' · '+roleOf(chat,selected):'');
+  document.getElementById('hMeta').textContent=st+' · '+(chat?chat.mode:'')+' · '+(peer.contact||'');
+  var box=document.getElementById('msgs');var html='';var lastTopic=null;
+  var me=agentInfo(LOCAL)||{avatar:'我'};
+  (chat?chat.messages:[]).forEach(function(m){
+    if(m.topic!==lastTopic){lastTopic=m.topic;html+='<div class="tdiv">'+esc(topicTitle(chat,m.topic))+' · '+esc(m.topic)+' · 提问者 '+esc(topicInitiator(chat,m.topic)||'—')+'</div>';}
+    var mine=m.from===LOCAL;
+    var tags='<span class="chip">'+hhmm(m.created)+'</span>';
+    if(m.state==='archive')tags+='<span class="chip">已归档</span>';
+    if(m.state==='inbox')tags+='<span class="chip">待领取</span>';
+    if(m.state==='processing'){tags+='<span class="chip live">处理中</span>';
+      if(m.lastProgressNote)tags+='<span class="chip live">'+esc(m.lastProgressNote)+'</span>';}
+    var who=mine?LOCAL:selected+(m.type==='reply'?' · 回复':' · 请求');
+    var archNote=m.trunc?'<div style="color:var(--faint);font-size:11px;margin-top:4px">归档正文已截断 · 完整内容见 archive/'+esc(m.arch||'')+'</div>':'';
+    html+='<div class="msg'+(mine?' mine':'')+'"><div class="ava">'+avaHtml(mine?me.avatar:peer.avatar)+'</div>'+
+      '<div class="col"><div class="who">'+esc(who)+'</div>'+
+      '<div class="bubble">'+esc(m.body)+'</div><div class="tags">'+tags+'</div>'+archNote+'</div></div>';
+  });
+  if(!(chat&&chat.messages&&chat.messages.length)){
+    html='<div class="empty-hero">暂无与该 agent 的往来消息</div>';
+  }
+  box.innerHTML=html;
+  box.scrollTop=box.scrollHeight;
+}
+
+function roleCard(name,st,extra){
+  // 角色卡：头像 + 名字 + 该角色在最新话题中的状态 + 该 agent 的资料
+  var a=agentInfo(name)||{avatar:(name||'?').substring(0,1).toUpperCase()};
+  var html='<div class="id-card"><div class="ava">'+avaHtml(a.avatar)+'</div>'+
+    '<div><div class="id-name">'+esc(name)+'</div></div></div>'+statusTag(st)+(extra||'');
+  if(a.contact)html+='<div class="kv" style="margin-top:8px"><b>联系约定</b><br>'+esc(a.contact)+'</div>';
+  if(a.lastSeen)html+='<div class="kv"><b>最后在线</b> · '+esc(a.lastSeen.replace('T',' ').substring(0,19))+'</div>';
+  if(a.stream&&a.stream.tail){
+    html+='<details class="kv" style="margin-top:8px"><summary style="cursor:pointer"><b>思考流</b> · '+esc(a.stream.file||'')+
+      '（'+esc((a.stream.updated||'').replace('T',' ').substring(0,19))+'）</summary>'+
+      '<pre style="white-space:pre-wrap;font-size:11px;margin:6px 0 0;max-height:180px;overflow:auto;background:rgba(127,127,127,.08);padding:6px;border-radius:6px">'+esc(a.stream.tail)+'</pre></details>';
+  }
+  return html;
+}
+
+function renderRight(d,chat){
+  var ab=document.getElementById('askerBody'),nb=document.getElementById('answererBody');
+  if(!chat||!chat.messages||!chat.messages.length){
+    ab.className='empty';ab.textContent='未选择';
+    nb.className='empty';nb.textContent='未选择';
+  }else{
+    ab.className='';nb.className='';
+    var p=topicPair(chat,chat.messages[chat.messages.length-1].topic);
+    var pend=(chat.unread>0)?('<div class="kv" style="margin-top:6px"><b>待领取</b> ×'+chat.unread+'</div>'):'';
+    ab.innerHTML=roleCard(p.asker,p.askSt);
+    nb.innerHTML=roleCard(p.answerer,p.ansSt,pend);
+  }
+  var beats=document.getElementById('beats');var found=0;var html='';
+  (d.chats||[]).forEach(function(c){
+    (c.messages||[]).forEach(function(m){
+      if(m.state==='processing'&&m.lastProgress&&fresh(m.lastProgress,15)){
+        found++;
+        var handler=(m.from===c.peer)?LOCAL:c.peer;
+        html+='<div class="row-line"><span class="t">'+hhmm(m.lastProgress)+'</span><b>'+esc(handler)+'</b> · '+esc(m.lastProgressNote||'')+'</div>';
+      }});});
+  beats.innerHTML=found?html:'<div class="empty">无进行中的任务</div>';
+}
+
+function renderInflight(d){
+  var el=document.getElementById('inflight');
+  var me=agentInfo(LOCAL);
+  var items=(me&&me.inflight)||[];
+  if(!items.length){el.textContent='无在途信件';return;}
+  var html='';
+  items.forEach(function(x){
+    var bad=(x.status==='STALLED'||x.status==='RETURNED');
+    var hhmmx=(x.updated||'').length>=19?(x.updated||'').replace('T',' ').substring(11,19):'';
+    html+='<div class="row-line'+(bad?' bad':'')+'"><span class="t">'+hhmmx+'</span><b>'+esc(x.status)+'</b> · '+esc(x.id)+
+      (x.peer?' → '+esc(x.peer):'')+(x.reason?'（'+esc(x.reason)+'）':'')+'</div>';
+  });
+  el.innerHTML=html;
+}
+
+function renderAll(d){
+  LOCAL=d.localAgent;
+  renderDaemon(d);
+  renderList(d);
+  var chat=selected?chatOf(selected):null;
+  renderChat(d,chat);
+  renderRight(d,chat);
+  renderInflight(d);
+}
+
+var _lastSeq = null;
+var _lastRenderAt = 0;
+// Probe-first poll (payload diet + idle cost ~0): every 2s load only the tiny
+// dashboard-seq.js stamp that the post office bumps on each rebuild; the full
+// dashboard-data.js loads only when the stamp moved. A hidden panel does
+// nothing at all; becoming visible re-kicks immediately. Freshness-dependent
+// views (daemon pill, heartbeats) re-render from the cached payload once a
+// minute without reloading anything.
+function loadFull(){
+  var d=document.createElement('script');
+  d.src='dashboard-data.js?t='+Date.now();
+  d.onload=function(){
+    if(window.DASHBOARD_DATA){_lastRenderAt=Date.now();renderAll(window.DASHBOARD_DATA);}
+    d.remove();
+  };
+  d.onerror=function(){d.remove();};
+  document.head.appendChild(d);
+}
+function loadData(){
+  if(document.hidden)return;
+  var s=document.createElement('script');
+  s.src='dashboard-seq.js?t='+Date.now();
+  s.onload=function(){
+    var seq=window.DASHBOARD_SEQ;
+    s.remove();
+    if(seq===undefined||seq===null){loadFull();return;}   // generator without seq support: old behavior
+    if(seq===_lastSeq){
+      if(Date.now()-_lastRenderAt>60000){_lastRenderAt=Date.now();renderAll(window.DASHBOARD_DATA);}
+      return;   // nothing moved: skip the full payload entirely
+    }
+    _lastSeq=seq;
+    loadFull();
+  };
+  s.onerror=function(){s.remove();loadFull();};   // seq file missing: fall back to the plain poll
+  document.head.appendChild(s);
+}
+document.addEventListener('visibilitychange',function(){if(!document.hidden)loadData();});
+loadData();
+setInterval(loadData,2000);
+</script>
+</body>
+</html>

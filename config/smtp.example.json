@@ -1,0 +1,8 @@
+﻿{
+  "host": "smtp.example.com",
+  "port": 587,
+  "from": "postmaster@example.com",
+  "user": "postmaster@example.com",
+  "pass": "app-password-here",
+  "ssl": true
+}

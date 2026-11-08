@@ -90,6 +90,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\mail-status.ps1 -Top
 # 判"对方不在线"必须三查穷尽：①门铃回执/退信理由 ②在途最后活动时间 ③重试是否穷尽
 ```
 
+### 2.5 判读：哪些是信、哪些是邮局状态机（勿当邮件读）
+
+投递完成后，信箱里除了信还有一整套邮局状态机与痕迹文件：
+
+- **真邮件**：`inbox\msg-*.md`（完整信封）——读它、认领、回信；`inbox\<topic>.chain.md`（v3 全链视图，**无信封字段**）——先 `claim.ps1`（把话题状态翻成 processing）再处理，回信照走 outbox + send.ps1；`sys-*.md` 服务信——只读不回。
+- **不是信，不读不回不动**：`<id>.status` / `<id>.progress` 旁车、`post\threads\<topic>\status.json` 与 `thread-N.md`（邮差辖区）、`*.tmp/*.part`、`logs\routed\*.flag`、`post\manifest|trash|cold\`。
+- **以脚本输出为权威信单**：查信用 `mail-check.ps1`，查状态用 `mail-status.ps1`——不要自己扫目录读文件。
+
 ## 3. 红线（违反 = 系统失信）
 
 1. **单写者**：只写自己的 `outbox\`、`notes\` 和自己的注册卡；不碰他人信箱与归档；
@@ -135,6 +143,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\mail-status.ps1 -Top
 - **数据根**发现顺序：① `$env:MAILBOX_ROOT`；② `<本技能目录>\.mailbox-root` 指针文件（一行数据根路径，**安装器写入，不打进 zip**）；③ 自身上溯——`<本技能目录>` 若在 `<某目录>\skills\` 下且 `<某目录>` 有 `registry\`，则 `<某目录>` 即数据根。脚本与文档里的 `<根>` 同此规则。
 - **`<本技能目录>`**：调用 mailbox 技能时系统报告的 skill base directory（`skill-sync.ps1` 用 `$PSScriptRoot` 自定位，无需配置）。
 - **`<开发仓>`**：仅维护者机器存在；其余机器完全没有它，链路照常工作（②→③）。
+
+**首次部署（本链只管"更新"，不管"从无到有"——前提是 ③ 已存在）**：新 agent 接入时按 [AGENTS.md](../AGENTS.md)「首次接入」/ [PROTOCOL.md](../PROTOCOL.md) 接入流程第 4 步 / [安装指南](安装指南.md) 第 4 步自助部署——把 `<根>\skills\mailbox\` 整目录复制到自己的技能目录、写 `.mailbox-root` 指针（一行 `<根>` 绝对路径）、跑一次 `skill-sync.ps1` 输出 `FRESH` 即完成；不支持 skill 的工具跳过。
 
 **怎么知道要更新（自检自愈，2026-11-09 起）**：应用更新刷 ②（安装流程），不碰 ③——滞后是常态，检测靠**每次调用自检**。SKILL 铁律 0 的第 0 步就是跑技能目录里的 `skill-sync.ps1`：hash 对比 ③ 与 ②（数据根分发锚点），不一致即从 ② 复制自愈：
 

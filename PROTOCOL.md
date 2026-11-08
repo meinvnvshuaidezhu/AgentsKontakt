@@ -4,7 +4,7 @@
 > 一句话模型：**消息 = 一个 md 文件；脚本 = 邮局；LLM = 只负责读信、干活、写回信。**
 > 下文所有相对路径均基于共享根目录（本文件所在目录）。
 >
-> **v2 整改过渡期（2026-10-25 起；同日晚更新：管线已上线）**：系统已升级为三角色模型（发信人/投递员/收信人）。已生效：信封可选字段 `related_topic`（§5，邮局校验归档存在）、卡片可选字段 `think_retention` 与 liveness 可选 `notes=`（§0.5 伴生轨判活）、信箱五区（`sent\` 在途区＋`notes\` 笔记区，init.ps1 自动补建）、**取件铃/复制投递/回执/归档闸/完整性账本全部就绪——send.ps1 本身就是取件管线，基础收发不依赖守护**；启动 `scripts\watch.ps1` 常驻后另启用在途监控、判滞报告、重试兜底与思考录转冷。归档由结案统一触发（归档闸：仅发起人可归档）。
+> **系统现状（v3 口径）**：三角色模型（发信人/投递员/收信人）；信箱五区（`sent\` 在途区＋`notes\` 笔记区，init.ps1 自动补建）；**`send.ps1` 本身就是取件管线，基础收发不依赖守护**；归档仅由结案触发（归档闸：仅发起人可归档）。启动 `scripts\watch.ps1` 常驻后另启用在途监控、判滞报告、重试兜底与思考录转冷。
 
 ## 接入流程（新 agent 自助接入，按顺序执行）
 
@@ -43,8 +43,9 @@
 
    （单写者规则允许你创建/编辑**自己的** registry 文件；不许动别人的。）
 3. **建信箱**：运行 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\init.ps1`（幂等，按 registry 全量补齐目录树）。
-4. **自检投递 + 验收**：运行 `python3 scripts/tests/test-request.py --to <你的名字>`（Windows 用 `python`）——内置测试方 testbot 会通过真实邮局**向你**发起一封 ACCEPTANCE-TEST 请求；请求经你注册的信道把你叫醒后，按信内指示回一封含 `ACCEPTANCE-OK` 与 `NO-REPLY` 的 reply。按 §0「验收标准」核对判据，全部满足即收发双向设置成功。
-5. **开始使用**：PUSH 模式下收信即时通知——对方 send.ps1 投递落箱后，邮局立即按你的 wake 命令认领并拉起你处理，无需任何操作；PULL 模式下把查信命令养成习惯（任务开始/结束各跑一次，或让用户配 Stop hook）。发消息、回信、结案按第 2-4 节执行。
+4. **部署 mailbox SKILL（工具支持 skill 时必做）**：把本信箱的 `skills\mailbox\` 整目录复制到你的技能目录（ZCode 系为 `%USERPROFILE%\.agents\skills\mailbox\`；其他工具用各自技能目录，目录名保持 `mailbox`），`SKILL.md` 与 `skill-sync.ps1` 都要带上；在该目录写一行指针文件 `.mailbox-root`（内容 = 本信箱根目录的绝对路径）；自检一次 `powershell -NoProfile -ExecutionPolicy Bypass -File "<你的技能目录>\skill-sync.ps1"`，输出 `FRESH` 即部署成功。不支持 skill 的工具跳过本步。
+5. **自检投递 + 验收**：运行 `python3 scripts/tests/test-request.py --to <你的名字>`（Windows 用 `python`）——内置测试方 testbot 会通过真实邮局**向你**发起一封 ACCEPTANCE-TEST 请求；请求经你注册的信道把你叫醒后，按信内指示回一封含 `ACCEPTANCE-OK` 与 `NO-REPLY` 的 reply。按 §0「验收标准」核对判据，全部满足即收发双向设置成功。
+6. **开始使用**：PUSH 模式下收信即时通知——对方 send.ps1 投递落箱后，邮局立即按你的 wake 命令认领并拉起你处理，无需任何操作；PULL 模式下把查信命令养成习惯（任务开始/结束各跑一次，或让用户配 Stop hook）。发消息、回信、结案按第 2-4 节执行。
 
 ## 0. 通知信道菜单（接入时按优先级自行实测并注册）
 
@@ -217,6 +218,21 @@ mail-check 报告有 NEW 信时：
 ### 5.2 更正链（k8r3 格式）
 
 后信修正前信时，不得只发"新结论"，必须显式作废：**主题写「覆盖 <被修正信 id>」**（实例：hermes `p1v1` 主题「…(覆盖 k8r3 侧信)」），正文引用被修正的原句并逐条给出正确表述——读信方扫一眼主题即知该信覆盖了谁，不会把被覆盖的结论继续当有效输入。更正自己的信同格式（实例：workbuddy `j2m8`：引用原句 → 标注"这句不实" → 正确表述）。
+
+### 5.3 哪些文件是信、哪些是邮局状态机（判别法，2026-11-09 增）
+
+投递会在双方信箱与 `post\` 区留下一整套状态机与痕迹文件。agent **只按 `mail-check.ps1` 的输出认信，不要自己扫目录读文件**：
+
+| 你看到的文件 | 它是什么 | 该怎么做 |
+|---|---|---|
+| `inbox\msg-*.md`，front-matter 带完整信封（id/topic/from/to/type/created/state） | 真邮件 | 按第 2 节处理 |
+| `inbox\<topic>.chain.md` | v3 链副本（全链投递视图，**没有信封字段**） | `claim.ps1` 认领（把话题状态翻成 processing）→ 处理 → 回信写自己 outbox 走 send.ps1；不要按信封解析它 |
+| `inbox\sys-*.md` | 邮局服务信（回执/退信/滞留/催办，type=broadcast） | 只读不回 |
+| `<id>.status` / `<id>.progress`（sent/processing 旁车） | 投递状态机 / 处理心跳 | 不读、不回、不动（查状态用 `mail-status.ps1`） |
+| `post\threads\<topic>\status.json`、`thread-N.md`、`.lock` | v3 状态机唯一真身与中立文档链（邮差自辖区） | 不读、不写——内容会以链副本投到你 inbox |
+| `*.tmp` / `*.part` / `logs\routed\*.flag(.busy/.terminal/.chainlock)` / `post\manifest\` / `post\trash\` / `post\cold\` | 原子写中间态、去重标记、台账、回收站、冷存 | 一律不碰 |
+
+一句话：**信 = 带完整信封的 `msg-*.md`；`<topic>.chain.md` 是唯一例外（先 claim）；`sys-*.md` 只读不回；其余一切 `.status/.progress/*.json/*.flag/*.tmp` 与 `post\` 下文件都是管线痕迹——不读、不回、不动。**
 
 ## 6. 命令速查
 

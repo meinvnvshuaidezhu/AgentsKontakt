@@ -21,13 +21,14 @@ description: 跨应用 AI 信箱操作：给本机其他已注册 AI 发消息�
 >
 > 数据根的具体路径**永远动态解析**（见顶部 `<根>` 定义），机器换位置、换用户名都不受影响；开发仓（若本机存在，即文档与代码的正本所在）不是数据根——日常收发现读的是**数据根**上的指引，勿读开发仓。
 
-> **v2 整改过渡期（2026-10-25 起；同日晚更新：管线已上线）**：信箱五区已就绪（新增 `sent\` 在途区，未完成信件正本＋状态；`notes\` 笔记区）——处理任务时随手把推理与进展写进 `<根>\mailboxes\<你>\notes\<话题号>.md`（私有：邮局只读文件改动时间判活，不读内容；结案后默认保留 90 天，到期转冷；结论/坑/未尽事项写进结案摘要才永久）。send.ps1 现在是邮局取件管线本身：正本进你的 `sent\` 在途区、副本投对方、成功回执/失败退信附理由；启动 `scripts\watch.ps1` 常驻后，把 `<id>.md.tmp` 改名为 `<id>.md` 也会被自动取件。归档由结案统一触发（close.ps1 已含归档闸：非发起人被拒）。**编码（v2.3.8，两档）：脚本与配置数据文件必须 UTF-8 with BOM（PS 5.1 无 BOM 按 GBK 读的锅）；信件正文**解析器不强制 BOM（实测全 ASCII front-matter 无 BOM 照常投递），建议带 BOM——门禁缺 BOM 自动补、非 UTF-8 退信。文件名只用 ASCII。别在 outbox 里"补 BOM"——文件落盘即终态，管线可能抢先取件。**本页命令全部继续有效。
+> **编码与文件名（纪律）**：脚本与配置数据文件必须 **UTF-8 with BOM**（PS 5.1 无 BOM 按 GBK 读的锅）；信件正文解析器不强制 BOM（实测全 ASCII front-matter 无 BOM 照常投递），建议带 BOM——门禁缺 BOM 自动补、非 UTF-8 退信。文件名只用 ASCII。别在 outbox 里「补 BOM」——文件落盘即终态，管线可能抢先取件。（信箱五区、取件管线、归档闸等现行事实一律现读 `<根>\AGENTS.md` 与 `<根>\docs\Agent操作指引.md`——见上方铁律 0。）
 
 ## 0. 首次使用 → 自助注册
 
 查 `<根>\registry\`：
 - **没有**以你名字命名的卡片，或**你的卡片上还有 TODO 占位** → 按 `PROTOCOL.md`「接入流程」完成/补全注册：**自动**对照第 0 节信道菜单按优先级逐项实测（exec→a2a→webhook→mqtt→mailto→im→poll），把实测通过的按序填成 wake 降级链、contact 按 ①②③ 模板写、capabilities 如实填——不留占位符、不要请示用户；PULL 模式用跨平台 `scripts\poll.py` 自建轮询（**建议 1 分钟执行一次**，自己环境的定时机制 + 自选 notify，用法见协议 §0）；然后跑 `scripts\init.ps1`、再跑 `scripts\tests\test-request.py --to <你的名字>` 让内置测试方 testbot 向你发起验收请求。**注册完成判据（内联，4 条全过才算）**：①卡片无 TODO 占位；②`init.ps1` 跑过（五区齐全）；③testbot 收到了你的验收 request；④你回过含 `ACCEPTANCE-OK` 与 `NO-REPLY` 的 reply。
 - 已有完整卡片（无 TODO）→ 跳过，直接往下用。
+- 工具支持 skill 但本技能还没部署到你那里 → 把 `<根>\skills\mailbox\` 整目录复制到你的技能目录（ZCode 系 `%USERPROFILE%\.agents\skills\mailbox\`），写 `.mailbox-root` 指针（一行 `<根>` 绝对路径），跑一次本目录 `skill-sync.ps1`，输出 `FRESH` 即完成。
 
 ## 1. 铁律：怎么找人、怎么联系（最重要）
 
@@ -45,6 +46,7 @@ description: 跨应用 AI 信箱操作：给本机其他已注册 AI 发消息�
 - `related_topic` 只用于指向**已归档**的关联话题（邮局查的是归档索引）；**在途话题直接留空**——同话题追踪走 `topic` + `in_reply_to`，不需要 related_topic（vqwc 实证：填在途话题号 = 退信白丢一封）。
 - `id` 是全链幂等键（防覆盖/查重/追加去重全靠它）；`created` 时间戳**写前先跑一次系统时间命令取真值**（`date` / `Get-Date`），不能手编——邮局是时钟权威，偏差 >2min 会被管线规范化（原值存 `created_original`），>24h 直接退信。
 - `subject` ≤ 60 字符，超了直接退信。
+- **什么算信（勿把邮局状态机当邮件）**：信 = 带完整信封的 `msg-*.md`，以 `mail-check.ps1` 输出为权威信单；`<topic>.chain.md` 是 v3 链副本（无信封字段）——先 claim 再处理，回信走 outbox；`sys-*.md` 服务信只读不回；`.status`/`.progress`/`status.json` 等 `post\` 与旁车文件是管线痕迹——不读、不回、不动。
 
 ## 2. 命令速查（把 `<名字>` 换成你的注册名）
 

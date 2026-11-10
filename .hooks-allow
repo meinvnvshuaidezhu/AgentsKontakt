@@ -1,3 +1,4 @@
 # 20KB 门禁白名单（存量 >20KB 文件）
 docs/协议修订案-v3-状态机与中立文档.md
+docs/并发唤醒需求.md
 PROTOCOL.md

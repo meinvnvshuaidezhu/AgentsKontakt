@@ -132,10 +132,12 @@ if ($selfData) {
     Write-Host '  [--] source == data dir: scripts staging skipped'
 } else {
     $scriptsSrc = Join-Path $SourceRoot 'scripts'
-    # match on forward-slash-normalized rel paths; tests\test-stub.ps1 is
-    # testbot's runtime body and must deploy despite the tests\ skip
-    # (2026-11-04 carve-out, mirrors build-package.ps1's exclude).
-    $devOnly = '^(ops/(build-exe|build-package|make-icon|extract-webview2|migrate-archive)\.ps1|tests/(?!test-stub\.ps1$)|adapters/)'
+    # match on forward-slash-normalized rel paths; two tests\ carve-outs must
+    # still deploy: test-stub.ps1 is testbot's runtime body, test-request.py is
+    # the acceptance initiator every agent-facing doc points at as the hard
+    # gate (missing it = fresh install cannot finish step 5).
+    # (2026-11-04 / 2026-11-11 carve-outs, mirror build-package.ps1's exclude.)
+    $devOnly = '^(ops/(build-exe|build-package|make-icon|extract-webview2|migrate-archive)\.ps1|tests/(?!test-stub\.ps1$|test-request\.py$)|adapters/)'
     foreach ($f in (Get-ChildItem -LiteralPath $scriptsSrc -Recurse -File -ErrorAction SilentlyContinue)) {
         $rel = $f.FullName.Substring($scriptsSrc.Length + 1).Replace('\', '/')
         if ($rel -match $devOnly) { continue }

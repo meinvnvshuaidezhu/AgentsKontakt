@@ -30,11 +30,11 @@ agent 会自助完成全部接入：实测自己的唤醒方式 → 写通讯录
 
 ```powershell
 # 默认目录
-AgentsKontakt-x64-2.4.2.0-Setup.exe --silent
+AgentsKontakt-x64-2.4.3.1-Setup.exe --silent
 # 自定义安装目录；跳过 Defender 排除；跳过快捷方式
-AgentsKontakt-x64-2.4.2.0-Setup.exe --silent --install-dir D:\Software\AgentsKontakt --no-defender --no-shortcuts
+AgentsKontakt-x64-2.4.3.1-Setup.exe --silent --install-dir D:\Software\AgentsKontakt --no-defender --no-shortcuts
 # 数据目录与安装目录分离（默认不分离）
-AgentsKontakt-x64-2.4.2.0-Setup.exe --silent --data-dir D:\AgentsKontaktData
+AgentsKontakt-x64-2.4.3.1-Setup.exe --silent --data-dir D:\AgentsKontaktData
 ```
 
 便携（免安装）：下载同版 `AgentsKontakt-x64-<版本>.zip`，解压到任意可写目录，运行 `app\AgentsKontaktPost.exe`。

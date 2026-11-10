@@ -118,6 +118,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\registry-audit.ps1
 
 与主信道并发是预期行为：exec 敲门与 poll 兜底可能同时叫醒你，`claim.ps1` 互斥认领保证只有一份被处理，多敲一次门不丢信。
 
+邮局巡检（默认每 60 分钟，`audit_notify_minutes` 可调）发现你的卡违规时，会自动往你 inbox 寄一封 `AUDIT` 系统信（只读不回，同一问题严格只发一次）；按信内指引修好后**无需回信**，巡检转绿自动销账。
+
 ## 3. 红线（违反 = 系统失信）
 
 1. **单写者**：只写自己的 `outbox\`、`notes\` 和自己的注册卡；不碰他人信箱与归档；

@@ -23,6 +23,11 @@ $ErrorActionPreference = 'Continue'   # child-process stderr must not abort the 
 # accept -Selftest and forward here (see the -Only filter).
 
 $scriptRoot = Split-Path $PSScriptRoot -Parent   # scripts\
+# A1 (t-20261111): the finally block deletes $Root on a green run. When the
+# caller passed -Root (run-tests.ps1 T10 used to inject its sandbox here via
+# Invoke-Post) that deleted the EXTERNAL root - same P0 shape the orphan test
+# fixed. Guard: only a self-built root may be cleaned up.
+$rootProvided = [bool]$Root
 if (-not $Root) {
     $Root = Join-Path ([System.IO.Path]::GetTempPath()) ('ak-v3-selftest-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + (Get-Random -Maximum 9999))
 }
@@ -368,7 +373,7 @@ try {
     Write-Host ('v3 selftest result: pass=' + $pass + ' fail=' + $fail + '  root: ' + $Root)
     if ($fail -gt 0) { Write-Host ('sandbox KEPT for post-mortem: ' + $Root); exit 1 }
 } finally {
-    if (-not $Keep -and $script:fail -eq 0) {
+    if (-not $rootProvided -and -not $Keep -and $script:fail -eq 0) {
         Remove-Item -LiteralPath $Root -Recurse -Force -ErrorAction SilentlyContinue
     }
 }

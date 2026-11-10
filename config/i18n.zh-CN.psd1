@@ -143,4 +143,7 @@
   'audit.pull-ok'                    = 'pull 兜底在跑（task={0}）[OK]'
   'audit.ok'                         = '全部检查通过 [OK]'
   'audit.summary'                    = '审计完成：fail={0} warn={1}'
+
+  # ---- core\audit-notify.ps1 ----
+  'audit-notify.body' = @('邮局巡检（registry-audit）发现你的注册卡或信道存在问题，请自助修复。本信只读不回：', '', '{0}', '', '修复口径：docs\Agent操作指引.md §2.6（PULL 兜底五步）与 PROTOCOL §0「信道注册纪律」。', '同一问题只发这一封——发过即跳过，等你处理；修复转绿后下一轮巡检自动销账（不发「已修复」回执）。', '巡检周期：约 {1} 分钟一轮    数据根：{2}')
 }

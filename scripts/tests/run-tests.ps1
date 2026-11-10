@@ -223,14 +223,21 @@ Assert 'expired mirror deleted'            (-not (Test-Path $oldStream))
 Assert 'live mirror kept'                  (Test-Path $newStream)
 
 # ---- T10: v3 selftest (r4.1 §7-3) - full state-machine chain in a temp root ----
+# A2 (t-20261111): this used to go through Invoke-Post, which unconditionally
+# appends -Root $Sandbox. The selftest accepts -Root, ran its whole chain
+# INSIDE the regression sandbox, and its finally block deleted the sandbox on
+# a green run (it had no rootProvided guard). Green-but-poisoned: nothing
+# after T10 touched $Sandbox, so it stayed invisible until T12 arrived. Call
+# it directly like T11 - the selftest builds and cleans its own throwaway root.
 Write-Host 'T10 v3 selftest: state machine + neutral docs full chain'
-$r = Invoke-Post -Script (Join-Path $ScriptsDir 'tests/test-v3-selftest.ps1')
+$out10 = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $ScriptsDir 'tests\test-v3-selftest.ps1') 2>&1 | Out-String
+$code10 = $LASTEXITCODE
 # A2 (t-20261107-ix07): parse the pass/fail counts from the output instead of
 # hardcoding one - the assertion count grows with every new case and a stale
 # number in the name is exactly the "green but wrong" shape workbuddy flagged.
 $st10 = $null
-if ($r.out -match 'pass=(\d+)\s+fail=(\d+)') { $st10 = @{ pass = [int]$Matches[1]; fail = [int]$Matches[2] } }
-Assert 'v3 selftest exits 0, all assertions green' ($r.code -eq 0 -and $st10 -and $st10.fail -eq 0 -and $st10.pass -gt 0) $r.out
+if ($out10 -match 'pass=(\d+)\s+fail=(\d+)') { $st10 = @{ pass = [int]$Matches[1]; fail = [int]$Matches[2] } }
+Assert 'v3 selftest exits 0, all assertions green' ($code10 -eq 0 -and $st10 -and $st10.fail -eq 0 -and $st10.pass -gt 0) $out10
 
 # ---- T11: v3 orphan recycle-station acceptance (n5w8 A1-A12) ----
 # A2: this call used to go through Invoke-Post, which unconditionally appends
@@ -244,6 +251,41 @@ $code11 = $LASTEXITCODE
 $st11 = $null
 if ($out11 -match 'pass=(\d+)\s+fail=(\d+)') { $st11 = @{ pass = [int]$Matches[1]; fail = [int]$Matches[2] } }
 Assert 'v3 orphan acceptance exits 0, all assertions green' ($code11 -eq 0 -and $st11 -and $st11.fail -eq 0 -and $st11.pass -gt 0) $out11
+
+# ---- T12: audit-notify - findings -> AUDIT sys mail, strictly-once ledger ----
+# ta/tb seed cards are wake:TODO with no pull field and no liveness line, so
+# fail-liveness + fail-pull-missing (plus warn-no-poll-journal) fire
+# deterministically - no Task Scheduler or TCP probes involved. The heal step
+# rewrites ta's card with a pull exemption, exactly the field a compliant
+# card would carry.
+Write-Host 'T12 audit-notify: sys mail + strict-once dedup + healed-ledger clear'
+$auditSubj = [regex]::Escape('subject: AUDIT ')
+$taInbox = Join-Path (Join-Path (Join-Path $Sandbox 'mailboxes') 'ta') 'inbox'
+$r = Invoke-Post -Script (Join-Path $CoreDir 'audit-notify.ps1')
+Assert 'audit-notify exits 0' ($r.code -eq 0) $r.out
+$taSys1 = @(Get-ChildItem $taInbox -Filter 'sys-*.md' -ErrorAction SilentlyContinue |
+    Where-Object { (Get-Content $_.FullName -Raw) -match ($auditSubj + 'ta') })
+Assert 'audit sys mail delivered to ta' ($taSys1.Count -ge 1) $r.out
+Assert 'notify ledger created' (Test-Path (Join-Path $Sandbox 'post\audit-notify.json'))
+$r = Invoke-Post -Script (Join-Path $CoreDir 'audit-notify.ps1')
+$taSys2 = @(Get-ChildItem $taInbox -Filter 'sys-*.md' |
+    Where-Object { (Get-Content $_.FullName -Raw) -match ($auditSubj + 'ta') })
+Assert 'strictly once: second run sends no new mail' ($taSys2.Count -eq $taSys1.Count) $r.out
+# heal: register the pull exemption the way a compliant card would
+$cardPath = Join-Path $regDir 'ta.md'
+$cardText = (Get-Content $cardPath -Raw).Replace('model: test-model', "model: test-model`r`npull: none - test-exempt")
+[System.IO.File]::WriteAllText($cardPath, $cardText, (New-Object System.Text.UTF8Encoding($false)))
+$r = Invoke-Post -Script (Join-Path $CoreDir 'audit-notify.ps1')
+$taSys3 = @(Get-ChildItem $taInbox -Filter 'sys-*.md' |
+    Where-Object { (Get-Content $_.FullName -Raw) -match ($auditSubj + 'ta') })
+Assert 'healed: no new mail after pull registered' ($taSys3.Count -eq $taSys1.Count) $r.out
+$ledText = Get-Content (Join-Path $Sandbox 'post\audit-notify.json') -Raw
+Assert 'healed key cleared from ledger' ($ledText -notmatch [regex]::Escape('ta|fail-pull-missing')) $ledText
+Assert 'unhealed keys stay in ledger' ($ledText -match [regex]::Escape('ta|fail-liveness')) $ledText
+# CLI regression after the lib refactor: renderer keeps exit codes + output
+$ra = Invoke-Post -Script (Join-Path $ScriptsDir 'registry-audit.ps1')
+Assert 'registry-audit CLI exit 1 with FAIL present' ($ra.code -eq 1) $ra.out
+Assert 'registry-audit CLI renders [FAIL] line' ($ra.out -match '\[FAIL\]') $ra.out
 
 # ---- summary ----
 Write-Host ''

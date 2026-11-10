@@ -275,7 +275,8 @@ function Get-SystemConfig {
     # keys are preserved so the file can carry comments (the "//" key).
     $defaults = @{ rotate_size_mb = 2; rotate_keep = 4; stream_retention_days = 7;
                    sys_retention_days = 3; dead_after_dispatches = 3; poll_hooks = @{};
-                   nudge_after_days = 7; auto_archive_after_days = 14; pending_stall_minutes = 60 }
+                   nudge_after_days = 7; auto_archive_after_days = 14; pending_stall_minutes = 60;
+                   audit_notify_minutes = 60 }
     $path = Join-Path $script:Root 'config\system.json'
     if (Test-Path -LiteralPath $path) {
         try {

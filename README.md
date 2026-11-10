@@ -116,7 +116,7 @@ archive\
 | `mail-check.ps1` | PULL 模式查信入口（exit 1=有信） | agent 每任务开始/结束 |
 | `mail-status.ps1` | 查消息阶段与最近心跳 | 汇报进展、判离线三查 |
 | `archive-query.ps1` | 历史归档条件查询 | agent 或人回溯历史对话 |
-| `registry-audit.ps1` | 注册卡合规审计（只读）：TODO 残留 / 门铃可达性 / pull 兜底 / 计划任务失效 / journal 敲响证据 | 信道注册或整改后自查；定期巡检 |
+| `registry-audit.ps1` | 注册卡合规审计（只读）：TODO 残留 / 门铃可达性 / pull 兜底 / 计划任务失效 / journal 敲响证据 | 信道注册或整改后自查；定期巡检（watch 按 `audit_notify_minutes` 自动跑 `core\audit-notify.ps1`，违规自动寄 `AUDIT` 系统信给对应 agent——严格一次，转绿销账；`-Notify` 手动触发） |
 | `test-stub.ps1` → `tests\test-stub.ps1` | PUSH 模式测试桩 | 端到端联调 |
 | `tests\test-request.py` | 验收发起器：testbot 向被测 agent 发起 ACCEPTANCE-TEST | 信道注册后的验收 |
 | `tests\run-tests.ps1` | 沙箱回归（38+ 断言全链路） | 改动脚本后一键验收 |

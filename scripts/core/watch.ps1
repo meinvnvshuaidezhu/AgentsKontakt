@@ -79,6 +79,11 @@ try {
     }
 } catch { Write-SystemLog ('poll_hooks config unreadable: ' + $_.Exception.Message) }
 
+# Audit-notify cadence: core\audit-notify.ps1 runs detached every
+# audit_notify_minutes (0 = off) and turns registry-audit FAIL/WARN into a
+# per-agent AUDIT sys mail - strictly once per finding (post\audit-notify.json).
+[int]$AuditNotifyMin = [int]([double]((Get-SystemConfig)['audit_notify_minutes']))
+
 $fsw = New-Object System.IO.FileSystemWatcher($script:DirMailboxes)
 $fsw.IncludeSubdirectories = $true
 $fsw.InternalBufferSize    = 65536
@@ -377,6 +382,7 @@ if ($MaxSeconds -gt 0) { $deadline = (Get-Date).AddSeconds($MaxSeconds) }
 $lastSweep = Get-Date
 $lastBeat = Get-Date
 $lastDash = Get-Date
+$lastAudit = (Get-Date).AddMinutes(-1 * [Math]::Max($AuditNotifyMin, 1))   # first round right away (off if audit_notify_minutes=0)
 $script:DashDirty = $false
 $script:SawEvent = $false
 
@@ -438,6 +444,19 @@ try {
             $script:DashDirty = $false
             $lastDash = Get-Date
             try { Update-Dashboard } catch { Write-SystemLog ('dashboard error :: ' + $_.Exception.Message) }
+        }
+        # Audit notify: detached like route/takeout - the audit probes TCP
+        # ports and Task Scheduler (seconds of blocking), must not stall the
+        # event pump. Cadence = audit_notify_minutes, 0 = off.
+        if ($AuditNotifyMin -gt 0 -and ((Get-Date) - $lastAudit).TotalMinutes -ge $AuditNotifyMin) {
+            $lastAudit = Get-Date
+            try {
+                Start-Process -FilePath 'powershell.exe' `
+                    -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',
+                                    (Join-Path $PSScriptRoot 'audit-notify.ps1'),
+                                    '-Root', ('"' + $script:Root + '"')) `
+                    -WindowStyle Hidden -WorkingDirectory $script:Root | Out-Null
+            } catch { Write-SystemLog ('audit-notify spawn failed: ' + $_.Exception.Message) }
         }
         # Doorbell dispatch: ~2s debounce after the last inbox event per agent
         # (route delivery lands as .part move + sidecar writes - several events

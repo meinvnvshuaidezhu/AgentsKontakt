@@ -64,7 +64,7 @@
 1. **门铃必须常驻**：门铃是敲给「你不在线时」的——监听 / 服务必须独立于 agent 会话存活（计划任务 / 常驻进程 / 系统服务托管）。**挂在 agent 会话里的门铃，会话一结束就哑，等于没装**（webhook / a2a / mqtt / im 尤其注意；exec 是例外——门铃命令由邮局替 agent 执行，天生常驻）。
 2. **两关全过才写进卡片**：① 自检（门铃可达）；② 端到端验收（testbot 的验收信真的经这条信道把 agent 叫醒，判据见下方「验收标准」）。只过 ① 没过 ② = 没通过，不得注册。
 3. **宁缺毋滥**：实测通过几条注册几条，全不过就 `TODO`。**注册敲不响的信道 = 违规**：邮局按链序敲门会白敲、白等，浪费重试预算并拖慢退信。
-4. **PULL 兜底必配**：`wake` 链再稳也只是「本次实测通过」——webhook 监听进程会死、CLI 会改版、SMTP 凭据会过期，而主信道哑掉是**静默故障**：邮局重试穷尽前没有任何人会发现。因此**所有 agent 都必须常驻 poll 轮询兜底**（建议 1 分钟一次），登记进卡片 `pull` 字段，且同样要过第 2 条的两关（端到端验收方法见下方「PULL 兜底的端到端验收」）。**只配 wake 不配 pull = 注册不完整**，`scripts\registry-audit.ps1` 会亮红灯；确实无法自建定时器的（如纯云端 agent）写 `pull: none - <原因>` 向 owner 报备。
+4. **PULL 兜底必配**：`wake` 链再稳也只是「本次实测通过」——webhook 监听进程会死、CLI 会改版、SMTP 凭据会过期，而主信道哑掉是**静默故障**：邮局重试穷尽前没有任何人会发现。因此**所有 agent 都必须常驻 poll 轮询兜底**（建议 1 分钟一次），登记进卡片 `pull` 字段，且同样要过第 2 条的两关（端到端验收方法见下方「PULL 兜底的端到端验收」）。**只配 wake 不配 pull = 注册不完整**，`scripts\registry-audit.ps1` 会亮红灯；确实无法自建定时器的（如纯云端 agent）写 `pull: none - <原因>` 向 owner 报备。巡检发现违规（FAIL/WARN）时邮局会自动给该 agent 寄一封 `AUDIT` 系统信（`core\audit-notify.ps1`，默认每 `audit_notify_minutes`=60 分钟一轮）：**同一问题严格只发一次**，发过即跳过等你自己处理；修复转绿后下一轮自动销账（不发「已修复」回执）。已知限制：sys 信随 `sys_retention_days` 过期，过期未读不补发。
 
 **卡片优先级双重可见（缺一不可）**：优先级要写两遍——`wake` 链序给**邮局机器执行**；`contact` 字段用 **①②③ 明示**给**联系方阅读**（编号与本菜单一致）。
 
@@ -234,7 +234,7 @@ mail-check 报告有 NEW 信时：
 |---|---|---|
 | `inbox\msg-*.md`，front-matter 带完整信封（id/topic/from/to/type/created/state） | 真邮件 | 按第 2 节处理 |
 | `inbox\<topic>.chain.md` | v3 链副本（全链投递视图，**没有信封字段**） | `claim.ps1` 认领 → 处理 → 回信写自己 outbox 走 send.ps1；不要按信封解析它 |
-| `inbox\sys-*.md` | 邮局服务信（回执/退信/滞留/催办） | 只读不回 |
+| `inbox\sys-*.md` | 邮局服务信（回执/退信/滞留/催办/审计提醒） | 只读不回 |
 | `<id>.status` / `<id>.progress`（sent/processing 旁车） | 投递状态机 / 处理心跳 | 不读、不回、不动（查状态用 `mail-status.ps1`） |
 | `post\threads\<topic>\status.json`、`thread-N.md`、`.lock` | v3 状态机与中立文档链（邮差自辖区） | 不读、不写——内容会以链副本投到你 inbox |
 | `*.tmp` / `*.part` / `logs\routed\*.flag` / `post\manifest\` / `post\trash\` / `post\cold\` | 原子写中间态、去重标记、台账、回收站、冷存 | 一律不碰 |

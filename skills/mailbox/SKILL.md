@@ -74,7 +74,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<根>\scripts\mail-status.p
 2. 有 NEW 信 → 先 ② 认领。认领后**立即写心跳**（铁律）：`powershell ... scripts\progress.ps1 -File "<该消息路径>" -Note "<一句话进度>"`，之后每个关键节点各写一条，长步骤开始前也要写——没有心跳会被判假死重派。
 3. 读 `mailboxes\<你>\processing\` 里的消息，完成其中要求的工作（边干边写 `mailboxes\<你>\notes\<话题号>.md` 思考录）。
 4. 回信写到 `mailboxes\<你>\outbox\`：`type: reply`、`topic` 沿用原话题、`in_reply_to` 填原消息 id（**必填**）。
-5. 跑 ③，见 `已送达 [DELIVERED]` 即本轮完成。
+5. 跑 ③，见 `已送达 [DELIVERED]` 即本轮完成。修复/整改类请求在回信末尾加一句「验收通过后请结案归档」——结案责任在发起方：不替它结，也别忘了提醒它先验收。
 
 （PUSH 模式的 agent 不需要跑 ①——投递落箱瞬间邮局就拉起你处理，但心跳照写。）
 
@@ -88,7 +88,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<根>\scripts\mail-status.p
 
 ## 5. 工作流 C：结案（仅话题发起方）
 
-用户确认话题完成，或你作为发起方认为闭环 → 跑 ④。话题全部消息收拢进 `archive\<发起方>\<年>\<月>\<日>\<话题>\`，并重建 `archive\index.md` 与 `archive\<agent>\_index.md`。结案摘要直接编辑归档目录里的 `summary.md`——「时间线」是永久层：结论、坑、未尽事项务必写进去。
+**结案判据**：请求类话题以**收件方验收**为准——修复/整改类务必先等对方确认「已生效/已验收」再结（需要对方重启/重配才能生效的，以生效后实测为准），别在收到回信后想当然地关；纯通知类（播报、须知）收到即闭环，可直接结。用户确认完成，或你作为发起方确认上述判据满足 → 跑 ④。话题全部消息收拢进 `archive\<发起方>\<年>\<月>\<日>\<话题>\`，并重建 `archive\index.md` 与 `archive\<agent>\_index.md`。
+
+**结案摘要**：编辑归档目录里的 `summary.md`——「时间线」是永久层：结论、坑、未尽事项务必写进去。注意：归档时 `summary.md` 会被设为**只读锁定**（防篡改设计），编辑前 `attrib -r <summary路径>` 解锁，写完 `attrib +r` 锁回。
 
 ## 6. 工作流 D：查历史对话归档
 

@@ -44,7 +44,8 @@
    contact: 信道优先级：① exec（同机拉起，秒级）。寄信到我的 inbox（走 send.ps1）即达，一般几分钟内回信
    capabilities: <你擅长什么，一两句如实写>
    liveness: heartbeat=自觉纪律(安静≤15分钟); stream=progress-only; session=selfreport
-   owner: <你的名字>
+   think_retention: 90   # 可选：思考录结案后保留天数，默认 90
+   owner: <本机所有者的名字，问用户或从已有卡片抄>
    registered: <ISO8601 含时区>
    last_seen: (never)
    ---
@@ -115,7 +116,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\progress.ps1 -File m
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\send.ps1 -File mailboxes\<你>\outbox\<id>.md
 # 查状态（目录即状态：inbox=待接收 / processing=处理中 / archive=已回信）
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\mail-status.ps1 -Topic <t-...>
-# 结案（仅话题发起方；摘要随后直接编辑归档目录里的 summary.md——close.ps1 的 -Summary 参数当前未接线，勿依赖）
+# 结案（仅话题发起方；请求类话题先等收件方验收再结。摘要直接编辑归档目录里的 summary.md——归档机制会把它设为只读，编辑前 attrib -r <路径> 解锁、写完 attrib +r 锁回；close.ps1 的 -Summary 参数当前未接线，勿依赖）
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\close.ps1 -Topic <t-...> -Agent <你>
 # 查历史（新开话题前先查一次，能引用就不重开）
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\archive-query.ps1 -Agent <你> -With <对方> -Keyword <词>

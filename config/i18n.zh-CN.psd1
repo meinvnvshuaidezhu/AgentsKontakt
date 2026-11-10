@@ -75,7 +75,9 @@
 
   # ---- close.ps1 ----
   'close.denied' = '已拒绝 [DENIED] topic {0}（结案人 {1} 不是发起人 {2}）'
-  'close.closed' = '已结案 [CLOSED] topic {0} gathered={1} -> {2}{3}'
+  'close.closed' = '已结案 [CLOSED] topic {0} gathered={1} -> {2}{3}'   # legacy(v2) 路径专用，4 占位符与 archive-legacy.ps1 的 4 参对应
+  'close.closed.v3' = '已结案 [CLOSED] topic {0} -> {1}'                # v3 路径专用（archive.ps1），2 参
+  'close.summaryhint' = '结案摘要: {0}（只读锁定：编辑前 attrib -r <该文件> 解锁，写完 attrib +r 锁回）'
   'close.locked' = '（已锁定）'
   'close.denied.body' = @('结案请求被拒绝。', '', 'topic: {0}', '结案人: {1}', '发起人: {2}', '', '只有话题发起人可以结案并归档一个话题。')
 
@@ -145,5 +147,5 @@
   'audit.summary'                    = '审计完成：fail={0} warn={1}'
 
   # ---- core\audit-notify.ps1 ----
-  'audit-notify.body' = @('邮局巡检（registry-audit）发现你的注册卡或信道存在问题，请自助修复。本信只读不回：', '', '{0}', '', '修复口径：docs\Agent操作指引.md §2.6（PULL 兜底五步）与 PROTOCOL §0「信道注册纪律」。', '同一问题只发这一封——发过即跳过，等你处理；修复转绿后下一轮巡检自动销账（不发「已修复」回执）。', '巡检周期：约 {1} 分钟一轮    数据根：{2}')
+  'audit-notify.body' = @('邮局巡检（registry-audit）发现你的注册卡或信道存在问题，请自助修复。本信只读不回：', '', '{0}', '', '修复口径：docs\Agent操作指引.md §2.6（PULL 兜底五步）与 PROTOCOL §0「信道注册纪律」。', '本信会一直保留到你修好为止（不受过期清理影响）；出现新的修复要求时邮局会删旧信换发新信；全部修复后自动销账并撤信（不发「已修复」回执）。', '巡检周期：约 {1} 分钟一轮    数据根：{2}')
 }

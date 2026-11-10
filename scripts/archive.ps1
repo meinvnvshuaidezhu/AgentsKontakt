@@ -57,7 +57,8 @@ if (Test-Path -LiteralPath $statusPath) {
     $null = Write-SystemMail -To ([string]$st.from) -Topic $Topic -Subject ('ARCHIVED ' + $Topic) -Body ('Topic ' + $Topic + ' archived to ' + $dest + ' by ' + $Agent + '.')
     $null = Write-SystemMail -To ([string]$st.to) -Topic $Topic -Subject ('ARCHIVED ' + $Topic) -Body ('Topic ' + $Topic + ' archived to ' + $dest + ' by ' + $Agent + '.')
     Update-Dashboard
-    Write-Host (Get-AkText 'close.closed' 'CLOSED topic {0} -> {1}' $Topic $dest)
+    Write-Host (Get-AkText 'close.closed.v3' 'CLOSED topic {0} -> {1}' $Topic $dest)
+    Write-Host (Get-AkText 'close.summaryhint' 'Summary: {0} (read-only locked; attrib -r <file> to edit, attrib +r to relock)' (Join-Path $dest 'summary.md'))
     exit 0
 }
 

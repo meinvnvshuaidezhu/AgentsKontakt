@@ -252,36 +252,56 @@ $st11 = $null
 if ($out11 -match 'pass=(\d+)\s+fail=(\d+)') { $st11 = @{ pass = [int]$Matches[1]; fail = [int]$Matches[2] } }
 Assert 'v3 orphan acceptance exits 0, all assertions green' ($code11 -eq 0 -and $st11 -and $st11.fail -eq 0 -and $st11.pass -gt 0) $out11
 
-# ---- T12: audit-notify - findings -> AUDIT sys mail, strictly-once ledger ----
+# ---- T12: audit-notify letter lifecycle (keep / resend-on-update / withdraw) ----
 # ta/tb seed cards are wake:TODO with no pull field and no liveness line, so
 # fail-liveness + fail-pull-missing (plus warn-no-poll-journal) fire
-# deterministically - no Task Scheduler or TCP probes involved. The heal step
-# rewrites ta's card with a pull exemption, exactly the field a compliant
-# card would carry.
-Write-Host 'T12 audit-notify: sys mail + strict-once dedup + healed-ledger clear'
+# deterministically - no Task Scheduler or TCP probes involved. Lifecycle
+# rules (owner, 2026-11-11): the letter is kept until the fix is confirmed
+# (exempt from sys retention), a NEW finding key replaces the letter, full
+# heal (incl. deregistration) withdraws it.
+Write-Host 'T12 audit-notify: lifecycle keep / resend-on-update / withdraw-on-heal'
 $auditSubj = [regex]::Escape('subject: AUDIT ')
 $taInbox = Join-Path (Join-Path (Join-Path $Sandbox 'mailboxes') 'ta') 'inbox'
+$taAud = { @(Get-ChildItem $taInbox -Filter 'sys-*.md' -ErrorAction SilentlyContinue |
+    Where-Object { (Get-Content $_.FullName -Raw) -match ($auditSubj + 'ta') }) }
 $r = Invoke-Post -Script (Join-Path $CoreDir 'audit-notify.ps1')
 Assert 'audit-notify exits 0' ($r.code -eq 0) $r.out
-$taSys1 = @(Get-ChildItem $taInbox -Filter 'sys-*.md' -ErrorAction SilentlyContinue |
-    Where-Object { (Get-Content $_.FullName -Raw) -match ($auditSubj + 'ta') })
-Assert 'audit sys mail delivered to ta' ($taSys1.Count -ge 1) $r.out
+$taSys1 = & $taAud
+Assert 'audit sys mail delivered to ta' ($taSys1.Count -eq 1) $r.out
 Assert 'notify ledger created' (Test-Path (Join-Path $Sandbox 'post\audit-notify.json'))
+# KEEP: unchanged findings -> same letter, no resend
 $r = Invoke-Post -Script (Join-Path $CoreDir 'audit-notify.ps1')
-$taSys2 = @(Get-ChildItem $taInbox -Filter 'sys-*.md' |
-    Where-Object { (Get-Content $_.FullName -Raw) -match ($auditSubj + 'ta') })
-Assert 'strictly once: second run sends no new mail' ($taSys2.Count -eq $taSys1.Count) $r.out
-# heal: register the pull exemption the way a compliant card would
+Assert 'keep: unchanged findings send no new mail' ((& $taAud).Count -eq 1) $r.out
+# EXEMPT: backdate the letter beyond the sys retention window; cleanup must
+# NOT purge the open AUDIT reminder, while a plain old sys mail is purged
+$letter = (& $taAud)[0]
+(Get-Item $letter.FullName).LastWriteTime = (Get-Date).AddDays(-9)
+$plainOld = Join-Path $taInbox 'sys-19990101-000000-zzzz.md'
+[System.IO.File]::WriteAllText($plainOld, "---`r`nid: sys-19990101-000000-zzzz`r`ntopic: t-x`r`nfrom: postmaster`r`nto: ta`r`ntype: broadcast`r`nsubject: OLD`r`ncreated: 1999-01-01T00:00:00.000+08:00`r`nstate: open`r`n---`r`n`r`nold receipt`r`n", (New-Object System.Text.UTF8Encoding($false)))
+(Get-Item $plainOld).LastWriteTime = (Get-Date).AddDays(-9)
+$r = Invoke-Post -Script (Join-Path $CoreDir 'cleanup.ps1')
+Assert 'exempt: open AUDIT letter survives sys retention' (Test-Path $letter.FullName) $r.out
+Assert 'contrast: plain old sys mail still purged' (-not (Test-Path $plainOld)) $r.out
+# RESEND: a new finding key appears -> old letter replaced by a fresh one
 $cardPath = Join-Path $regDir 'ta.md'
-$cardText = (Get-Content $cardPath -Raw).Replace('model: test-model', "model: test-model`r`npull: none - test-exempt")
+$cardText = (Get-Content $cardPath -Raw).Replace('wake: TODO', 'wake: TODO | im slack:x')   # -> fail-channel-unimplemented
 [System.IO.File]::WriteAllText($cardPath, $cardText, (New-Object System.Text.UTF8Encoding($false)))
 $r = Invoke-Post -Script (Join-Path $CoreDir 'audit-notify.ps1')
-$taSys3 = @(Get-ChildItem $taInbox -Filter 'sys-*.md' |
-    Where-Object { (Get-Content $_.FullName -Raw) -match ($auditSubj + 'ta') })
-Assert 'healed: no new mail after pull registered' ($taSys3.Count -eq $taSys1.Count) $r.out
+$taSys2 = & $taAud
+Assert 'resend: still exactly one AUDIT letter' ($taSys2.Count -eq 1) $r.out
+Assert 'resend: letter replaced (new id)' ($taSys2[0].FullName -ne $letter.FullName) $r.out
 $ledText = Get-Content (Join-Path $Sandbox 'post\audit-notify.json') -Raw
-Assert 'healed key cleared from ledger' ($ledText -notmatch [regex]::Escape('ta|fail-pull-missing')) $ledText
-Assert 'unhealed keys stay in ledger' ($ledText -match [regex]::Escape('ta|fail-liveness')) $ledText
+Assert 'resend: ledger points to the new letter' ($ledText -match [regex]::Escape($taSys2[0].Name)) $ledText
+Assert 'resend: journal logged the replacement' ((Get-Content (Join-Path (Join-Path $Sandbox 'logs') 'ta\journal.log') -Raw) -match 'resend keys=') $r.out
+# WITHDRAW: fix everything -> ledger cleared and the letter removed
+$cardText = (Get-Content $cardPath -Raw).Replace(' | im slack:x', '').Replace('model: test-model', "model: test-model`r`npull: none - test-exempt`r`nliveness: heartbeat=discipline(quiet-5min); stream=progress-only; session=selfreport")
+[System.IO.File]::WriteAllText($cardPath, $cardText, (New-Object System.Text.UTF8Encoding($false)))
+Add-Content -LiteralPath (Join-Path (Join-Path $Sandbox 'logs') 'ta\journal.log') -Value '2026-01-01 00:00:00 | POLL      | new mail: count=0' -Encoding UTF8
+$r = Invoke-Post -Script (Join-Path $CoreDir 'audit-notify.ps1')
+Assert 'withdraw: healed letter removed from inbox' ((& $taAud).Count -eq 0) $r.out
+$ledText = Get-Content (Join-Path $Sandbox 'post\audit-notify.json') -Raw
+Assert 'withdraw: ta keys cleared from ledger' ($ledText -notmatch [regex]::Escape('ta|fail-pull-missing')) $ledText
+Assert 'withdraw: journal logged the withdrawal' ((Get-Content (Join-Path (Join-Path $Sandbox 'logs') 'ta\journal.log') -Raw) -match 'cleared mail removed') $r.out
 # CLI regression after the lib refactor: renderer keeps exit codes + output
 $ra = Invoke-Post -Script (Join-Path $ScriptsDir 'registry-audit.ps1')
 Assert 'registry-audit CLI exit 1 with FAIL present' ($ra.code -eq 1) $ra.out

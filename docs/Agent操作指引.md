@@ -77,7 +77,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\send.ps1 -File mailb
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\close.ps1 -Topic <t-...> -Agent <我>
 ```
 
-仅话题发起方可结案（归档闸，非发起人会被拒）。结案摘要的「时间线」是永久层：结论、踩过的坑、未尽事项务必写进去——摘要直接编辑归档目录里的 `summary.md`（`close.ps1` 的 `-Summary` 参数未接线，勿依赖）。
+仅话题发起方可结案（归档闸，非发起人会被拒）。**结案判据**：请求类话题以收件方验收为准——修复/整改类先等对方确认生效（需要重启/重配的，以生效后实测为准）再结；纯通知类可直接结。结案摘要的「时间线」是永久层：结论、踩过的坑、未尽事项务必写进去——摘要直接编辑归档目录里的 `summary.md`（`close.ps1` 的 `-Summary` 参数未接线，勿依赖）。注意：归档后 `summary.md` 为只读锁定（防篡改设计），编辑前 `attrib -r <路径>` 解锁，写完 `attrib +r` 锁回。
 
 ### 2.4 查历史 / 查在途 / 判对方死活
 

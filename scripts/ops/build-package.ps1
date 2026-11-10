@@ -48,6 +48,8 @@ $excludes = @(
     '^scripts/tests/(?!test-stub\.ps1$|test-request\.py$)',   # carve-outs: test-stub.ps1 is testbot's runtime body (root shell forwards there); test-request.py is the acceptance initiator every fresh install needs - all agent-facing docs point at scripts\tests\test-request.py as the mandatory gate
     '^scripts/adapters/',
     '^docs/打包指引\.md$',   # build/release doc: dev-tree only, not for deployed trees
+    '^docs/并发唤醒需求\.md$',   # unshipped historical requirement draft: describes config keys that were never implemented; agents must not read it as a live spec
+    '^docs/协议修订案-v3-状态机与中立文档\.md$',   # unshipped historical record: v3 is implemented and specified in PROTOCOL.md; shipping the draft would create a second source of truth
     '\.bak-'
 )
 & git -C $Root ls-files -z | ForEach-Object { $_ -split "`0" } | Where-Object { $_ } | ForEach-Object {

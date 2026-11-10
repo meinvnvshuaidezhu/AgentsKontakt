@@ -9,8 +9,9 @@
 scripts\
 ├─ *.ps1 / poll.py            # 根层 = agent 面向的 CLI + 实现真身（archive.ps1、orphan-scan.ps1）+ 薄壳（见下）
 ├─ core\                      # 邮局管线实现（零 agent 特例；见硬规则 1 的既存例外）
-│   common.ps1  i18n.ps1  threads.ps1  route.ps1  watch.ps1  cleanup.ps1
-│   integrity.ps1  exec-dispatch-watch.ps1  feed.ps1  dashboard.ps1
+│   common.ps1  i18n.ps1  threads.ps1  archive-legacy.ps1  route.ps1
+│   watch.ps1  cleanup.ps1  integrity.ps1  exec-dispatch-watch.ps1
+│   feed.ps1  dashboard.ps1  audit-lib.ps1  audit-notify.ps1
 ├─ adapters\                  # 每 agent 适配器（唯一允许 agent 专名的层；按需创建）
 │   <agent>-wake.ps1  <agent>-mirror.py
 ├─ ops\                       # 机器相关、人工调用
@@ -19,11 +20,9 @@ scripts\
 │   build-exe.ps1  build-package.ps1  make-icon.ps1  extract-webview2.ps1
 └─ tests\                     # 只在沙箱跑
     run-tests.ps1  test-request.py  test-stub.ps1  test-route-exec.ps1
-    test-deadletter.ps1  test-wrapper-integrity.ps1  test-v3-orphan.ps1
-    test-v3-selftest.ps1   # wrapper-integrity：静态源码体检（控制字节 + Join-Path 目标解析），防转义层吃反斜杠复发
+    test-deadletter.ps1  test-wrapper-integrity.ps1   # 静态源码体检（控制字节 + Join-Path 目标解析），防转义层吃反斜杠复发
+    test-v3-orphan.ps1  test-v3-selftest.ps1
 ```
-
-> **文案层（2026-11-05 起）**：面向 agent/用户的控制台与 sys 邮正文文案统一经 `core\i18n.ps1` 的映射函数（`Get-AkText` / `Get-AkLines` / `Get-AkStatusName`）输出，文案本体在 `config\i18n.<lang>.psd1`（默认 `zh-CN`；`AK_LANG=en` 还原英文）——**改文案只改映射表，不动脚本**。机器面恒为英文：.status 状态值、.progress 的 `STATUS ok/failed` 与 `DISPATCHED (post office…)` 协议行、journal 动作词、sys 邮主题、退出码。含中文的数据文件必须 UTF-8 BOM。
 
 ## 根层两类文件
 
@@ -39,7 +38,7 @@ scripts\
    以及各 agent 会话里已形成的肌肉记忆。**薄壳是永久设施，不是过渡品**；删除前先确认
    上述引用方全部迁移完毕。
 
-## 三条硬规则
+## 四条硬规则
 
 1. **`core\` 内禁止 agent 专名与机器绝对路径**——core 只认 registry 卡片与数据根；
    per-agent 特例一律进 `adapters\`。唯一既存例外：`core\dashboard.ps1` 的看板视图中心
@@ -49,9 +48,9 @@ scripts\
 3. **改完脚本跑回归**：`powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tests\run-tests.ps1`
    （沙箱全链路，约 1 分钟，退出码 0 = 全绿）。托盘 exe 改动后重建：
    `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\build-exe.ps1`。
-4. **文案走映射表（2026-11-05 起）**：所有面向 agent/用户的控制台与 sys 邮正文文案，必须经 `core\i18n.ps1` 的
+4. **文案走映射表**：所有面向 agent/用户的控制台与 sys 邮正文文案，必须经 `core\i18n.ps1` 的
    `Get-AkText` / `Get-AkLines` / `Get-AkStatusName` 查表输出——调用点写英文原文作兜底，中文（及其他语言）只写在
-   `config\i18n.<lang>.psd1`；**改文案只改映射表，不动脚本**。机器面（.status 状态值、.progress 协议行、
+   `config\i18n.<lang>.psd1`（默认 `zh-CN`；`AK_LANG=en` 还原英文）；**改文案只改映射表，不动脚本**。机器面（.status 状态值、.progress 协议行、
    journal 动作词、sys 邮主题、退出码）恒为英文；含中文的数据文件必须 UTF-8 BOM。
 
 ## 生成物位置

@@ -99,6 +99,20 @@ foreach ($f in $tmps) {
 # Purge from every inbox at the configured age, together with the dispatch
 # sidecar and with sidecar orphans whose letter is long gone (the route claim
 # used to leave inbox\<id>.progress behind on every requeue cycle).
+# Audit-notify letters are exempt from sys retention (owner rule 2026-11-11):
+# an AUDIT reminder stays in the inbox until the fix is confirmed (healed ->
+# audit-notify withdraws it), so it must never be purged as "expired" here.
+# Load the ledger's open mail filenames once; missing/corrupt ledger = no
+# exemptions.
+$auditOpen = @{}
+$auditLedger = Join-Path $script:DirPost 'audit-notify.json'
+if (Test-Path -LiteralPath $auditLedger) {
+    try {
+        $rawLedger = Get-Content -LiteralPath $auditLedger -Raw -Encoding UTF8 | ConvertFrom-Json
+        foreach ($pr in $rawLedger.PSObject.Properties) { $mn = [string]$pr.Value.mail; if ($mn) { $auditOpen[$mn] = $true } }
+    } catch {}
+}
+
 if ($sysDays -gt 0) {
     $cutoffSys = $now.AddDays(-$sysDays)
     foreach ($d in (Get-ChildItem -LiteralPath $script:DirMailboxes -Directory -ErrorAction SilentlyContinue)) {
@@ -107,6 +121,7 @@ if ($sysDays -gt 0) {
         foreach ($p in [System.IO.Directory]::GetFiles($inb, 'sys-*.md')) {
             $f = New-Object System.IO.FileInfo($p)
             if (-not $f.Exists) { continue }
+            if ($auditOpen.ContainsKey($f.Name)) { continue }   # open AUDIT reminder - keep until healed
             if ($f.LastWriteTime -lt $cutoffSys) {
                 $sideS = Join-Path $inb ([System.IO.Path]::GetFileNameWithoutExtension($f.Name) + '.progress')
                 Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue
@@ -141,7 +156,7 @@ foreach ($d in (Get-ChildItem -LiteralPath $script:DirMailboxes -Directory -Erro
         # answer - requeueing it only fed the wake cycle. Purge on retention
         # instead (same age rule as the inbox pass above).
         if ($f.Name -like 'sys-*') {
-            if ($sysDays -gt 0 -and $f.LastWriteTime -lt $now.AddDays(-$sysDays)) {
+            if ($sysDays -gt 0 -and -not $auditOpen.ContainsKey($f.Name) -and $f.LastWriteTime -lt $now.AddDays(-$sysDays)) {
                 $sideS = Join-Path $proc ([System.IO.Path]::GetFileNameWithoutExtension($f.Name) + '.progress')
                 Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue
                 if (Test-Path -LiteralPath $sideS) { Remove-Item -LiteralPath $sideS -Force -ErrorAction SilentlyContinue }

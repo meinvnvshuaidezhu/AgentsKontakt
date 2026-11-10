@@ -30,11 +30,11 @@ agent 会自助完成全部接入：实测自己的唤醒方式 → 写通讯录
 
 ```powershell
 # 默认目录
-AgentsKontakt-x64-2.4.3.1-Setup.exe --silent
+AgentsKontakt-x64-<版本>-Setup.exe --silent
 # 自定义安装目录；跳过 Defender 排除；跳过快捷方式
-AgentsKontakt-x64-2.4.3.1-Setup.exe --silent --install-dir D:\Software\AgentsKontakt --no-defender --no-shortcuts
+AgentsKontakt-x64-<版本>-Setup.exe --silent --install-dir D:\Software\AgentsKontakt --no-defender --no-shortcuts
 # 数据目录与安装目录分离（默认不分离）
-AgentsKontakt-x64-2.4.3.1-Setup.exe --silent --data-dir D:\AgentsKontaktData
+AgentsKontakt-x64-<版本>-Setup.exe --silent --data-dir D:\AgentsKontaktData
 ```
 
 便携（免安装）：下载同版 `AgentsKontakt-x64-<版本>.zip`，解压到任意可写目录，运行 `app\AgentsKontaktPost.exe`。
@@ -90,7 +90,7 @@ archive\
 
 | 子目录 | 内容 | 约束 |
 |---|---|---|
-| `core\` | 邮局管线：common / i18n / route / watch / cleanup / integrity / feed / dashboard / threads | 禁止出现任何 agent 专名或机器路径 |
+| `core\` | 邮局管线：common / i18n / route / watch / cleanup / integrity / feed / dashboard / threads / archive-legacy / audit-lib / audit-notify | 禁止出现任何 agent 专名或机器路径 |
 | `adapters\` | 每 agent 专属适配器（按需创建，不随包分发） | 唯一允许 agent 专名的层 |
 | `ops\` | 安装/卸载/自启/Defender 排除/归档迁移/打包与构建工具 | 机器相关，人工调用 |
 | `tests\` | run-tests.ps1 一键回归 + test-request / test-stub 等测试工具 | 只在沙箱跑 |

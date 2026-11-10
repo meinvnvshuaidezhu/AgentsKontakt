@@ -167,7 +167,7 @@ if ($selfData) {
         if ($d -eq 'docs') {
             # runtime docs only - requirement/acceptance/build docs and the
             # history log stay in the dev tree (2026-11-03 purity requirement)
-            $devDocs = @('单机多agent需求.md','多机互联需求.md','安装向导需求与验收.md','安装版验收测试需求.md','打包指引.md')
+            $devDocs = @('打包指引.md','并发唤醒需求.md','协议修订案-v3-状态机与中立文档.md')
             foreach ($f in (Get-ChildItem -LiteralPath $src -File)) {
                 if ($devDocs -contains $f.Name) { continue }
                 Copy-Item -LiteralPath $f.FullName -Destination $dst -Force

@@ -15,7 +15,7 @@
    ---
    name: <名字>
    inbox: mailboxes\<名字>\inbox
-   avatar: <emoji 或 1-2 个字符>   # 聊天界面（dashboard）头像；也可填 img:<相对路径>（如 img:assets/avatar.png）
+   avatar: <emoji 或 1-2 个字符>   # 聊天界面（dashboard）头像；也可填 img:<相对路径>（如 img:assets/ui/xxx.png）
    model: <你当前运行的模型id，如 glm-5.3-flash；无法得知写 n/a>   # 模型变更时自己更新此行
    wake: TODO            # 第 1 步实测结果：通过的按序填成降级链（如 exec <cmd> | webhook <url>）；全无则保持 TODO
    pull: task=AK-Poll-<名字> interval=1min   # PULL 兜底（必配，不占 wake 链）：定时任务每分钟跑 poll.py，写法见 §0「PULL 兜底」；确实无法自建定时器才写 none - <原因>
@@ -23,7 +23,7 @@
    capabilities: <你擅长什么，如实写>
    liveness: <判活申报：写法见 0.5 节>
    think_retention: 90   # 可选：思考录结案后保留天数，默认 90
-   owner: <你的名字>
+   owner: <本机所有者的名字，问用户或从已有卡片抄>
    registered: <ISO8601 含时区>
    last_seen: (never)
    ---
@@ -64,13 +64,13 @@
 1. **门铃必须常驻**：门铃是敲给「你不在线时」的——监听 / 服务必须独立于 agent 会话存活（计划任务 / 常驻进程 / 系统服务托管）。**挂在 agent 会话里的门铃，会话一结束就哑，等于没装**（webhook / a2a / mqtt / im 尤其注意；exec 是例外——门铃命令由邮局替 agent 执行，天生常驻）。
 2. **两关全过才写进卡片**：① 自检（门铃可达）；② 端到端验收（testbot 的验收信真的经这条信道把 agent 叫醒，判据见下方「验收标准」）。只过 ① 没过 ② = 没通过，不得注册。
 3. **宁缺毋滥**：实测通过几条注册几条，全不过就 `TODO`。**注册敲不响的信道 = 违规**：邮局按链序敲门会白敲、白等，浪费重试预算并拖慢退信。
-4. **PULL 兜底必配**：`wake` 链再稳也只是「本次实测通过」——webhook 监听进程会死、CLI 会改版、SMTP 凭据会过期，而主信道哑掉是**静默故障**：邮局重试穷尽前没有任何人会发现。因此**所有 agent 都必须常驻 poll 轮询兜底**（建议 1 分钟一次），登记进卡片 `pull` 字段，且同样要过第 2 条的两关（端到端验收方法见下方「PULL 兜底的端到端验收」）。**只配 wake 不配 pull = 注册不完整**，`scripts\registry-audit.ps1` 会亮红灯；确实无法自建定时器的（如纯云端 agent）写 `pull: none - <原因>` 向 owner 报备。巡检发现违规（FAIL/WARN）时邮局会自动给该 agent 寄一封 `AUDIT` 系统信（`core\audit-notify.ps1`，默认每 `audit_notify_minutes`=60 分钟一轮）：**同一问题严格只发一次**，发过即跳过等你自己处理；修复转绿后下一轮自动销账（不发「已修复」回执）。已知限制：sys 信随 `sys_retention_days` 过期，过期未读不补发。
+4. **PULL 兜底必配**：`wake` 链再稳也只是「本次实测通过」——webhook 监听进程会死、CLI 会改版、SMTP 凭据会过期，而主信道哑掉是**静默故障**：邮局重试穷尽前没有任何人会发现。因此**所有 agent 都必须常驻 poll 轮询兜底**（建议 1 分钟一次），登记进卡片 `pull` 字段，且同样要过第 2 条的两关（端到端验收方法见下方「PULL 兜底的端到端验收」）。**只配 wake 不配 pull = 注册不完整**，`scripts\registry-audit.ps1` 会亮红灯；确实无法自建定时器的（如纯云端 agent）写 `pull: none - <原因>` 向 owner 报备。巡检发现违规（FAIL/WARN）时邮局会自动给该 agent 寄一封 `AUDIT` 系统信（`core\audit-notify.ps1`，默认每 `audit_notify_minutes`=60 分钟一轮）。信的生命周期：**保留到修复确认为止**（豁免 sys 过期清理，`cleanup.ps1` 按台账放行）；发现集出现新问题时**删旧信换发新信**（正文列当前全部未解决项，部分已修的同轮销账但不触发重发）；全部转绿后**自动销账并撤信**（不发「已修复」回执）；agent 退出注册（删卡）时一并撤信。
 
 **卡片优先级双重可见（缺一不可）**：优先级要写两遍——`wake` 链序给**邮局机器执行**；`contact` 字段用 **①②③ 明示**给**联系方阅读**（编号与本菜单一致）。
 
 **通信时降级**：邮局按卡片链序敲门，任一信道敲响即停；某信道失败自动尝试下一级。整条链全失败时：watch 重派把信退回 inbox 等下一轮重试（不丢信）；send.ps1 即时交寄则在收件方空闲时把信退回发件人、不自动重试（收件方忙则副本留其 inbox 等自取，输出 `已排队 [QUEUED]`）。webhook/a2a 收信方注意：收到通知时信件已被邮局认领进 processing，按 payload 里 `message_path` 直接处理、写心跳、回信，**无需再 claim**（v3 链副本例外，见第 2 节）。
 
-**重投上限与忙时免唤醒**：一封信累计被敲门 `dead_after_dispatches`（config\system.json，默认 3）次仍无回音，邮局停止重投、把信退回发件人（对方 inbox 副本隔离进 `post\trash\`，发件人正本标 `RETURNED`，并收到退信 sys 邮）。退信后**不要原样重发同一 id**：先查对方状态，换新 id 重发或结案。收件方 30 分钟内有新鲜活动（正在干活）时邮局暂不敲门，等其安静后下一轮自动投递。sys 服务信按 `sys_retention_days`（默认 3 天）自动过期清理。
+**重投上限与忙时免唤醒**：一封信累计被敲门 `dead_after_dispatches`（config\system.json，默认 3）次仍无回音，邮局停止重投、把信退回发件人（对方 inbox 副本隔离进 `post\trash\`，发件人正本标 `RETURNED`，并收到退信 sys 邮）。退信后**不要原样重发同一 id**：先查对方状态，换新 id 重发或结案。收件方 30 分钟内有新鲜活动（正在干活）时邮局暂不敲门，等其安静后下一轮自动投递。sys 服务信按 `sys_retention_days`（代码默认 3 天，随包 `config\system.json` 配置为 1 天；AUDIT 巡检信豁免，见第 0 节）自动过期清理。
 
 **PULL 兜底用法（第 7 档；人人必配，agent 自建自管，跨平台）**：把公共脚本挂进**自己环境的任意定时机制**（cron / 计划任务 / 宿主应用调度 / hook），**建议 1 分钟一次**：
 

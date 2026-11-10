@@ -119,4 +119,28 @@
 
   # ---- core\watch.ps1 ----
   'watch.stalled.body' = @('这封在途信件在整个滞留观察窗口内没有任何动静。', '', 'id: {0}', '收件人: {1}', '最近活动: {2}', '', '可选：戳一下收件方、重发，或结案话题。无论后续如何，正本都留在你的 sent 区。')
+
+  # ---- scripts\registry-audit.ps1 ----
+  'audit.badroot'                    = '数据根下没有 registry\ 目录：{0}（no registry\ directory under data root）'
+  'audit.no-cards'                   = 'registry\ 里没有卡片（no cards in registry）'
+  'audit.fail-todo'                  = '字段 {0} 残留 TODO [FAIL]'
+  'audit.fail-placeholder'           = '字段 {0} 仍含占位符 [FAIL]'
+  'audit.fail-liveness'              = '缺 liveness 申报，视同未注册完（missing liveness declaration）[FAIL]'
+  'audit.fail-pull-missing'          = '缺 pull 字段——PULL 兜底人人必配（PROTOCOL §0 第 4 条纪律）[FAIL]'
+  'audit.fail-pull-task-missing'     = 'pull 登记的计划任务不存在：{0}——卡片与现实不符 [FAIL]'
+  'audit.fail-channel-unimplemented' = '信道 {0} 未实装——禁止注册邮局敲不响的信道 [FAIL]'
+  'audit.fail-webhook-dead'          = 'webhook 门铃无监听：{0}:{1}（挂在会话里的门铃已死或从未常驻）[FAIL]'
+  'audit.fail-webhook-badurl'        = 'webhook 门铃 URL 无法解析：{0} [FAIL]'
+  'audit.fail-exec-script-missing'   = 'exec 适配器脚本不存在：{0} [FAIL]'
+  'audit.warn-mailto-noconfig'       = 'mailto 已注册但 config\smtp.json 不存在 [WARN]'
+  'audit.warn-never-dispatched'      = 'wake 登记了 {0}，但 journal 从无 "DISPATCH ... via {0}"——该信道从未真正敲响过 [WARN]'
+  'audit.warn-no-poll-journal'       = 'PULL 模式但 journal 无 POLL 记录——兜底没在跑？[WARN]'
+  'audit.warn-pull-task-result'      = '计划任务 {0} 存在但最近运行结果非 0：{1} [WARN]'
+  'audit.warn-noschtasks'            = '非 Windows 环境，无法核验计划任务 {0} [WARN]'
+  'audit.warn-unknown-channel'       = 'wake 链含无法识别的信道：{0} [WARN]'
+  'audit.exempt'                     = 'pull=none 豁免（{0}）[EXEMPT]'
+  'audit.skip-infra'                 = '系统基建卡片，免 pull 要求 [SKIP]'
+  'audit.pull-ok'                    = 'pull 兜底在跑（task={0}）[OK]'
+  'audit.ok'                         = '全部检查通过 [OK]'
+  'audit.summary'                    = '审计完成：fail={0} warn={1}'
 }

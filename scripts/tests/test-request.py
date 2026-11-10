@@ -30,7 +30,7 @@ FM_RE = re.compile(r'(?s)\A---\r?\n(.*?)\r?\n---\s*(?:\r?\n|$)')
 
 def front_matter(path):
     fm = {}
-    m = FM_RE.match(path.read_text(encoding='utf-8'))
+    m = FM_RE.match(path.read_text(encoding='utf-8-sig'))
     if m:
         for line in m.group(1).splitlines():
             kv = re.match(r'^\s*([A-Za-z0-9_\-]+)\s*:\s*(.*?)\s*$', line)

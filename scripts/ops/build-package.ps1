@@ -45,7 +45,7 @@ $excludes = @(
     '\.bak$',
     '^AKRoot.exe$',
     '^scripts/ops/(build-exe|build-package|make-icon|extract-webview2|migrate-archive)\.ps1$',
-    '^scripts/tests/(?!test-stub\.ps1$)',   # carve-out: tests\test-stub.ps1 is testbot's runtime body (root shell forwards there); excluding it made fresh installs' testbot PUSH wake silently no-op
+    '^scripts/tests/(?!test-stub\.ps1$|test-request\.py$)',   # carve-outs: test-stub.ps1 is testbot's runtime body (root shell forwards there); test-request.py is the acceptance initiator every fresh install needs - all agent-facing docs point at scripts\tests\test-request.py as the mandatory gate
     '^scripts/adapters/',
     '^docs/打包指引\.md$',   # build/release doc: dev-tree only, not for deployed trees
     '\.bak-'

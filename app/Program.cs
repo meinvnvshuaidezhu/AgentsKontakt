@@ -438,19 +438,50 @@ namespace AgentsKontaktPost
         System.Drawing.Icon RedDotTrayIcon()
         {
             if (trayIconRed != null) return trayIconRed;
-            using (var bmp = new System.Drawing.Bitmap(16, 16))
+            try
             {
-                using (var g = System.Drawing.Graphics.FromImage(bmp))
+                // post.ico 的 16px 帧是 PNG 压缩帧：System.Drawing 的 ToBitmap/DrawIcon
+                // 解出来是噪点（资源管理器能渲染是因为 shell 支持 PNG 帧）。改用与
+                // 资源管理器同源的 shell 提取器取 32px 帧，再只叠加红点。
+                IntPtr hBig, hSmall;
+                string icoPath = Path.Combine(installDir, "app", "post.ico");
+                if (File.Exists(icoPath) &&
+                    SHDefExtractIcon(icoPath, 0, 0, out hBig, out hSmall, (uint)(32 | (16 << 16))) == 0 &&
+                    hBig != IntPtr.Zero)
                 {
-                    g.Clear(System.Drawing.Color.Transparent);
-                    using (var baseIcon = LoadTrayIcon())
-                        g.DrawIcon(baseIcon, new System.Drawing.Rectangle(0, 0, 16, 16));
-                    using (var br = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(239, 68, 68)))
-                        g.FillEllipse(br, 9, 0, 7, 7);
+                    using (var bmp = System.Drawing.Icon.FromHandle(hBig).ToBitmap())
+                    {
+                        DrawUpdateBadge(bmp);
+                        trayIconRed = System.Drawing.Icon.FromHandle(bmp.GetHicon());
+                    }
+                    DestroyIcon(hBig);
+                    DestroyIcon(hSmall);
+                    return trayIconRed;
                 }
+            }
+            catch { }
+            // 兜底：无 shell 提取器时退回原路径（可能有 PNG 帧噪点，但红点仍可见）
+            using (var bmp = BaseTrayIcon().ToBitmap())
+            {
+                DrawUpdateBadge(bmp);
                 trayIconRed = System.Drawing.Icon.FromHandle(bmp.GetHicon());
             }
             return trayIconRed;
+        }
+
+        void DrawUpdateBadge(System.Drawing.Bitmap bmp)
+        {
+            int w = bmp.Width;
+            float dot = Math.Max(3.5f, w * 0.30f);   // 红点直径约为图标宽度的 30%：不遮挡信封图形
+            using (var g = System.Drawing.Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                var dotRect = new System.Drawing.RectangleF(w - dot - 0.75f, 0.75f, dot, dot);
+                using (var pen = new System.Drawing.Pen(System.Drawing.Color.FromArgb(9, 9, 11), 1.25f))
+                    g.DrawEllipse(pen, dotRect.X + 0.625f, dotRect.Y + 0.625f, dot - 1.25f, dot - 1.25f);   // 细描边：亮暗任务栏都可见
+                using (var br = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(239, 68, 68)))
+                    g.FillEllipse(br, dotRect.X, dotRect.Y, dot, dot);
+            }
         }
 
         System.Drawing.Icon BaseTrayIcon()
@@ -515,6 +546,13 @@ namespace AgentsKontaktPost
         [System.Runtime.InteropServices.DllImport("shellapi.dll")]
         static extern void SetCurrentProcessExplicitAppUserModelID(
             [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)] string appId);
+
+        [System.Runtime.InteropServices.DllImport("shell32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        static extern int SHDefExtractIcon(string iconPath, int index, uint flags,
+            out IntPtr hiconLarge, out IntPtr hiconSmall, uint nIconSize);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern bool DestroyIcon(IntPtr hIcon);
         Process daemon;
         System.Windows.Forms.Timer monitor;
         DateTime lastSpawnUtc;
@@ -589,11 +627,17 @@ namespace AgentsKontaktPost
             try { System.Net.ServicePointManager.SecurityProtocol |= System.Net.SecurityProtocolType.Tls12; } catch { }
             // Update packages are transient: sweep leftovers from a previous
             // session (crash/kill mid-download would otherwise leave debris).
+            // Per-file tolerance: one AV-locked file (a fresh installer is
+            // briefly scanned) must not abort the rest of the sweep.
             try
             {
                 string up = Path.Combine(dataDir, "updates");
                 if (Directory.Exists(up))
-                    foreach (string f in Directory.GetFiles(up)) File.Delete(f);
+                    foreach (string f in Directory.GetFiles(up))
+                    {
+                        try { File.Delete(f); }
+                        catch (Exception delEx) { Log("updates sweep skipped " + Path.GetFileName(f) + ": " + delEx.Message); }
+                    }
             }
             catch (Exception ex) { Log("updates sweep failed: " + ex.Message); }
 

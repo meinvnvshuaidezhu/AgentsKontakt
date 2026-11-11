@@ -55,6 +55,42 @@ Write-Host ("  data     : {0}" -f $DataDir)
 Write-Host ''
 
 # ---------------------------------------------------------------- 1. copy code
+# Copy every file of a tree with HARD per-file errors, then verify staged vs
+# target (count + size). Returns a List[string] of failures (empty = clean).
+# Rationale: Copy-Item -ErrorAction SilentlyContinue silently skipped locked
+# files (AV scan / leftover handle) -> undetectable half-install. The update
+# flow must fail loud instead: wizard shows the failure, the update
+# orchestrator keeps the package, the user closes the blocker and retries.
+function Copy-TreeVerified {
+    param([string]$Src, [string]$Dst)
+    # 8.3 短路径归一：$Src 可能携带 TEA_HO~1 形式（env TEMP 短路径），而
+    # Get-ChildItem 的 FullName 恒为长形式（Tea_House）——Substring 索引错位
+    # 会把文件拷进垃圾子目录且零报错（静默半安装）。Get-Item 的 FullName
+    # 由文件系统解析为长路径，两端必须同源。
+    $Src = (Get-Item -LiteralPath $Src).FullName
+    $failures = New-Object System.Collections.Generic.List[string]
+    $files = Get-ChildItem -LiteralPath $Src -Recurse -File
+    foreach ($f in $files) {
+        $rel = $f.FullName.Substring($Src.Length).TrimStart('\')
+        $target = Join-Path $Dst $rel
+        $tdir = Split-Path $target -Parent
+        if (-not (Test-Path -LiteralPath $tdir)) { New-Item -ItemType Directory -Path $tdir -Force | Out-Null }
+        try {
+            Copy-Item -LiteralPath $f.FullName -Destination $target -Force -ErrorAction Stop
+        } catch {
+            $failures.Add(($rel + ' :: ' + $_.Exception.Message))
+        }
+    }
+    foreach ($f in $files) {
+        $rel = $f.FullName.Substring($Src.Length).TrimStart('\')
+        $target = Join-Path $Dst $rel
+        if (-not (Test-Path -LiteralPath $target)) { $failures.Add(($rel + ' :: missing after copy')); continue }
+        if ((Get-Item -LiteralPath $target).Length -ne $f.Length) { $failures.Add(($rel + ' :: size mismatch')) }
+    }
+    return ,$failures
+}
+
+$script:CopyFailed = $false
 $sameTree = ([string]::Equals($SourceRoot.TrimEnd('\'), $InstallDir.TrimEnd('\'), [System.StringComparison]::OrdinalIgnoreCase))
 if ($sameTree) {
     Write-Host '  [--] source == install: code copy skipped'
@@ -67,8 +103,23 @@ if ($sameTree) {
         if (-not (Test-Path -LiteralPath $src)) { continue }
         $dst = Join-Path $InstallDir $d
         if (-not (Test-Path -LiteralPath $dst)) { New-Item -ItemType Directory -Path $dst -Force | Out-Null }
-        Copy-Item -Path (Join-Path $src '*') -Destination $dst -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Host ("  [ok] copied {0}" -f $d)
+        $fails = Copy-TreeVerified -Src $src -Dst $dst
+        if ($fails.Count -gt 0) {
+            $script:CopyFailed = $true
+            Write-Host ("  [!!] copy failures in {0}:" -f $d)
+            foreach ($x in $fails) { Write-Host ("       {0}" -f $x) }
+        } else {
+            Write-Host ("  [ok] copied {0} ({1} files)" -f $d, (Get-ChildItem -LiteralPath $src -Recurse -File).Count)
+        }
+    }
+    if ($script:CopyFailed) {
+        # Fail loud BEFORE any later stage runs: a locked file (antivirus scan,
+        # leftover handle) must never degrade into a silent half-install. The
+        # wizard offers an in-place retry; the update orchestrator keeps the
+        # downloaded package; nothing beyond the code copy was changed.
+        Write-Host '  [!!] install aborted: files could not be replaced (locked or access denied).'
+        Write-Host '       Close blockers (antivirus scan / open handles) and retry. Nothing else was changed.'
+        exit 3
     }
 }
 # WebView2 runtime bits travel with the app so it works on a fresh machine.
@@ -132,6 +183,8 @@ if ($selfData) {
     Write-Host '  [--] source == data dir: scripts staging skipped'
 } else {
     $scriptsSrc = Join-Path $SourceRoot 'scripts'
+    # 8.3 短路径归一（同 Copy-TreeVerified：Substr 索引必须与 FullName 同源）
+    $scriptsSrc = (Get-Item -LiteralPath $scriptsSrc).FullName
     # match on forward-slash-normalized rel paths; two tests\ carve-outs must
     # still deploy: test-stub.ps1 is testbot's runtime body, test-request.py is
     # the acceptance initiator every agent-facing doc points at as the hard
@@ -144,7 +197,17 @@ if ($selfData) {
         $dst = Join-Path $scriptsDst $rel
         $td = Split-Path $dst -Parent
         if (-not (Test-Path -LiteralPath $td)) { New-Item -ItemType Directory -Path $td -Force | Out-Null }
-        Copy-Item -LiteralPath $f.FullName -Destination $dst -Force -ErrorAction SilentlyContinue
+        try {
+            Copy-Item -LiteralPath $f.FullName -Destination $dst -Force -ErrorAction Stop
+        } catch {
+            $script:CopyFailed = $true
+            Write-Host ("  [!!] scripts staging failed: {0} :: {1}" -f $rel, $_.Exception.Message)
+        }
+    }
+    if ($script:CopyFailed) {
+        Write-Host '  [!!] install aborted: scripts staging hit locked / inaccessible files (half-install risk).'
+        Write-Host '       Close blockers and retry. Nothing beyond staging was changed.'
+        exit 3
     }
     Write-Host '  [ok] scripts staged into data dir'
 }
@@ -267,7 +330,16 @@ foreach ($dir in @($startMenu, $desktop)) {
 # enumeration (registry scan / AI discovery of installed apps).
 $exeVer = (Get-Item -LiteralPath $exe).VersionInfo.FileVersion
 $unKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\AgentsKontaktPost'
-try {
+# 沙盒/测试安装守卫：InstallDir 在 %TEMP% 下、且已存在指向其他真实安装的注册
+# 项时，跳过整段注册——否则测试会把"上次安装位置"记忆覆盖成临时目录，正式
+# 向导的路径预填随之失效（2026-11-12 用户实测踩坑）。
+$sandboxInstall = ($InstallDir -like (Join-Path $env:TEMP '*'))
+$prevLoc = (Get-ItemProperty -Path $unKey -Name 'InstallLocation' -ErrorAction SilentlyContinue).InstallLocation
+$hasRealEntry = ($prevLoc -and -not ($prevLoc -like (Join-Path $env:TEMP '*')))
+if ($sandboxInstall -and $hasRealEntry -and $prevLoc -ne $InstallDir) {
+    Write-Host ("  [--] sandbox install (temp dir): keep existing uninstall entry for {0}" -f $prevLoc)
+} else {
+    try {
     $sizeKB = 0
     try { $sizeKB = [int][math]::Round((Get-ChildItem -LiteralPath $InstallDir -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1KB) } catch { }
     New-Item -Path $unKey -Force | Out-Null
@@ -288,6 +360,7 @@ try {
     Set-ItemProperty -Path 'HKCU:\Software\AgentsKontakt' -Name 'LastInstallDir' -Value $InstallDir
 } catch {
     Write-Warning ("uninstall registration failed: {0}" -f $_.Exception.Message)
+}
 }
 
 # ---------------------------------------------------------------- 5. autostart

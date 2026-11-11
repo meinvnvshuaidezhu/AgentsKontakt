@@ -6,6 +6,7 @@
 
 - agent 入口：[AGENTS.md](AGENTS.md)（自动加载，日常收发只看这页）
 - 完整协议：[PROTOCOL.md](PROTOCOL.md)
+- 代码调用流程：[docs\调用流程.md](docs/调用流程.md)（架构总纲：模块职责/调用链/数据流，改码前先查阅）
 - 场景化操作 SOP：[docs\Agent操作指引.md](docs/Agent操作指引.md)
 - agent 自助接入：[docs\安装指南.md](docs/安装指南.md)
 - 开源许可：[LICENSE](LICENSE)（MIT）

@@ -371,6 +371,7 @@ namespace AgentsKontaktPost
             bool ok = Shell_NotifyIcon(NIM_ADD, ref nid);
             Log("tray NIM_ADD=" + ok);
             trayUp = ok;
+            if (ok && trayRedDot) ApplyTrayIcon(RedDotTrayIcon());   // explorer restart re-add: replay the badge
         }
 
         void RemoveTray()
@@ -418,6 +419,102 @@ namespace AgentsKontaktPost
             nid.szTip = tip;
             Shell_NotifyIcon(1, ref nid);   // NIM_MODIFY
         }
+
+        // ---- 托盘更新徽标 -------------------------------------------------------
+        // 有新版本时给托盘图标叠一个红点（重绘 16x16 位图换 NIF_ICON），忽略/安装
+        // 后由面板发 update-clear 摘除。explorer 重启重建托盘时按 trayRedDot 重放。
+        void ApplyTrayIcon(System.Drawing.Icon icon)
+        {
+            if (!trayUp) return;
+            NOTIFYICONDATA nid = new NOTIFYICONDATA();
+            nid.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NOTIFYICONDATA));
+            nid.hWnd = trayWin.Handle;
+            nid.uID = 42;   // 26H2: same poison note as above
+            nid.uFlags = NIF_ICON;
+            nid.hIcon = icon.Handle;
+            Shell_NotifyIcon(1, ref nid);   // NIM_MODIFY
+        }
+
+        System.Drawing.Icon RedDotTrayIcon()
+        {
+            if (trayIconRed != null) return trayIconRed;
+            using (var bmp = new System.Drawing.Bitmap(16, 16))
+            {
+                using (var g = System.Drawing.Graphics.FromImage(bmp))
+                {
+                    g.Clear(System.Drawing.Color.Transparent);
+                    using (var baseIcon = LoadTrayIcon())
+                        g.DrawIcon(baseIcon, new System.Drawing.Rectangle(0, 0, 16, 16));
+                    using (var br = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(239, 68, 68)))
+                        g.FillEllipse(br, 9, 0, 7, 7);
+                }
+                trayIconRed = System.Drawing.Icon.FromHandle(bmp.GetHicon());
+            }
+            return trayIconRed;
+        }
+
+        System.Drawing.Icon BaseTrayIcon()
+        {
+            if (trayIcon == null) trayIcon = LoadTrayIcon();
+            return trayIcon;
+        }
+
+        void SetTrayRedDot(bool on)
+        {
+            if (trayRedDot == on) return;
+            trayRedDot = on;
+            ApplyTrayIcon(on ? RedDotTrayIcon() : BaseTrayIcon());
+            Log("tray update badge: " + (on ? "on" : "off"));
+        }
+
+        // ---- 系统通知工厂 -------------------------------------------------------
+        // 不同 Windows 版本的通知呈现不同：Win10+ 的托盘气泡由系统渲染成操作中心
+        // Toast（先声明 AppUserModelID 让 Toast 归属本应用），Win7/8 为经典气球
+        // 提示。按系统版本在工厂里选择实现，调用方（面板消息/编排）只面向接口。
+        interface INotifier { void NotifyUpdateAvailable(string version); }
+
+        sealed class ToastNotifier : INotifier      // Windows 10/11：Toast
+        {
+            readonly PostApp app;
+            public ToastNotifier(PostApp app)
+            {
+                this.app = app;
+                try { SetCurrentProcessExplicitAppUserModelID("AgentsKontakt.Postman"); }
+                catch { }
+            }
+            public void NotifyUpdateAvailable(string version)
+            {
+                app.ShowTrayBalloon("AgentsKontakt 邮差", "AgentsKontakt当前有新版本更新");
+            }
+        }
+
+        sealed class BalloonNotifier : INotifier    // Windows 7/8：经典气球
+        {
+            readonly PostApp app;
+            public BalloonNotifier(PostApp app) { this.app = app; }
+            public void NotifyUpdateAvailable(string version)
+            {
+                app.ShowTrayBalloon("AgentsKontakt 邮差", "AgentsKontakt当前有新版本更新");
+            }
+        }
+
+        static class NotifierFactory
+        {
+            public static INotifier Create(PostApp app)
+            {
+                var v = Environment.OSVersion.Version;
+                return (v.Major >= 10) ? (INotifier)new ToastNotifier(app) : (INotifier)new BalloonNotifier(app);
+            }
+        }
+
+        INotifier Notifier
+        {
+            get { if (notifier == null) notifier = NotifierFactory.Create(this); return notifier; }
+        }
+
+        [System.Runtime.InteropServices.DllImport("shellapi.dll")]
+        static extern void SetCurrentProcessExplicitAppUserModelID(
+            [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)] string appId);
         Process daemon;
         System.Windows.Forms.Timer monitor;
         DateTime lastSpawnUtc;
@@ -445,6 +542,31 @@ namespace AgentsKontaktPost
         string lastTip;
         DateTime lastOfficeAliveLogUtc = DateTime.MinValue;
 
+        // ---- update download (panel-initiated via WebMessage, host-executed) ----
+        // 退出即丢进度: the partial file is deleted on cancel / dialog close /
+        // panel hide / app exit; only 暂停→继续 keeps bytes within the dialog's
+        // lifetime. A completed package hands ownership to the orchestrator.
+        System.Net.Http.HttpClient dlClient;
+        System.Threading.CancellationTokenSource dlCts;
+        System.Windows.Forms.Timer dlWatchdog;
+        string dlPath;
+        // 托盘更新徽标 + 系统通知
+        System.Drawing.Icon trayIconRed;    // base icon + red dot composite (cached)
+        bool trayRedDot;                    // badge state (re-applied when the tray re-adds)
+        string trayRedFor;                  // version the badge/notification fired for
+        INotifier notifier;
+        string dlUrl;
+        long dlReceived;
+        long dlTotal = -1;
+        bool dlActive;
+        bool dlPaused;
+        bool dlLoopAlive;    // the streaming loop runs; false while paused (loop exited)
+        bool dlDiscard;      // cancel/abandon/reload: delete the partial on abort
+        bool dlStall;        // 30s-no-bytes watchdog fired
+        bool dlFinishing;    // done → orchestrating exit (downloads no longer accepted)
+        DateTime dlLastByteUtc;
+        DateTime dlLastReportUtc;
+
         public PostApp(string installDir, string dataDir, string[] args)
         {
             this.installDir = installDir;
@@ -461,6 +583,19 @@ namespace AgentsKontaktPost
             }
             Log("=== app start (bits=" + (IntPtr.Size * 8) + " version=" + Program.Version +
                 " install=" + installDir + " data=" + dataDir + " minimized=" + startMinimized + ") ===");
+
+            // TLS1.2 for the update download against github.com (in-box csc
+            // targets .NET Framework where the default protocol set can lag).
+            try { System.Net.ServicePointManager.SecurityProtocol |= System.Net.SecurityProtocolType.Tls12; } catch { }
+            // Update packages are transient: sweep leftovers from a previous
+            // session (crash/kill mid-download would otherwise leave debris).
+            try
+            {
+                string up = Path.Combine(dataDir, "updates");
+                if (Directory.Exists(up))
+                    foreach (string f in Directory.GetFiles(up)) File.Delete(f);
+            }
+            catch (Exception ex) { Log("updates sweep failed: " + ex.Message); }
 
             shell = new ShellForm();
             shell.AllowVisible = !startMinimized;   // --minimized: nothing may show the panel before ShowShell
@@ -665,6 +800,9 @@ namespace AgentsKontaktPost
             // errors every tick after a logoff/close race).
             if (web == null || web.IsDisposed) { webReady = false; return; }
             if (suspendBroken) return;   // latched off by a prior failure; ResumeWeb re-arms
+            // 退出即丢进度: hiding the panel ends the download's lifetime - the
+            // progress view no longer exists to host it.
+            DiscardDownload();
             // Resident tray mode: freeze the hidden panel (renderer + gpu +
             // timers) until the next Show. TrySuspendAsync refuses while the
             // WebView is still visible, so the caller must hide the shell
@@ -741,6 +879,7 @@ namespace AgentsKontaktPost
         {
             reallyQuit = true;
             try { if (showSignal != null) showSignal.Set(); } catch { }   // wake the signal thread so it exits its blocking wait
+            DiscardDownload();   // 退出即丢进度 (a completed package is dlFinishing-protected)
             StopDaemon();
             RemoveTray();
             shell.Close();
@@ -753,6 +892,7 @@ namespace AgentsKontaktPost
             // being torn down, and every second this process lingers is a
             // window for the watchdog to respawn powershell into the dying
             // session. Process.Kill is safe off the UI thread.
+            try { DiscardDownload(); } catch { }
             try { StopDaemon(); } catch { }
         }
 
@@ -883,6 +1023,422 @@ namespace AgentsKontaktPost
             {
                 Log("daemon stop failed: " + ex.Message);
             }
+        }
+
+        // ---- update download (dashboard ⇄ host bridge) ------------------------
+        // The dashboard posts {action:"download-update"|...} via
+        // chrome.webview.postMessage; progress/errors travel back as JSON
+        // messages the panel renders into its progress UI. 退出即丢进度: the
+        // partial file only survives a 暂停→继续 inside one dialog lifetime;
+        // cancel / dialog close / panel hide / reload / app exit all delete it.
+        // On completion the host owns the package: balloon → detached
+        // orchestrator (wizard → delete-on-success → relaunch) → app exits.
+
+        System.Net.Http.HttpResponseMessage dlResp;
+        System.IO.Stream dlStream;
+
+        void OnWebMessage(object sender, CoreWebView2WebMessageReceivedEventArgs e)
+        {
+            Dictionary<string, object> msg = null;
+            try
+            {
+                msg = new System.Web.Script.Serialization.JavaScriptSerializer()
+                    .Deserialize<Dictionary<string, object>>(e.WebMessageAsJson);
+            }
+            catch (Exception ex)
+            {
+                Log("web message parse failed: " + ex.Message);
+                return;
+            }
+            if (msg == null) return;
+            string action = Convert.ToString(msg.ContainsKey("action") ? msg["action"] : "");
+            try
+            {
+                switch (action)
+                {
+                    case "download-update":
+                        StartDownload(Convert.ToString(msg.ContainsKey("url") ? msg["url"] : ""),
+                                      Convert.ToString(msg.ContainsKey("name") ? msg["name"] : ""));
+                        break;
+                    case "dl-pause": PauseDownload(); break;
+                    case "dl-resume": ResumeDownload(); break;
+                    case "dl-cancel":
+                    case "dl-abandon": CancelDownload(); break;
+                    case "update-available":
+                        SetTrayRedDot(true);
+                        string uv = Convert.ToString(msg.ContainsKey("version") ? msg["version"] : "");
+                        if (trayRedFor != uv)
+                        {
+                            trayRedFor = uv;
+                            Log("update available v" + uv + " - tray badge + notify");
+                            Notifier.NotifyUpdateAvailable(uv);
+                        }
+                        break;
+                    case "update-clear":
+                        trayRedFor = null;
+                        SetTrayRedDot(false);
+                        break;
+                    case "dl-state":
+                        DlPostJson(new Dictionary<string, object>
+                        {
+                            { "type", "dl-state" },
+                            { "active", dlActive },
+                            { "paused", dlPaused },
+                            { "received", dlReceived },
+                            { "total", dlTotal < 0 ? (object)null : (object)dlTotal }
+                        });
+                        break;
+                    default: break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("web message handling failed (" + action + "): " + ex.Message);
+            }
+        }
+
+        void StartDownload(string url, string name)
+        {
+            if (dlActive || dlFinishing) return;   // one download at a time
+            if (string.IsNullOrEmpty(url)) return;
+            if (string.IsNullOrEmpty(name)) name = "AgentsKontakt-Setup.exe";
+            foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
+            try
+            {
+                string dir = Path.Combine(dataDir, "updates");
+                Directory.CreateDirectory(dir);
+                // a fresh start always wipes any stale partial (退出即丢进度)
+                string p = Path.Combine(dir, name);
+                try { if (File.Exists(p)) File.Delete(p); } catch { }
+                dlPath = p; dlUrl = url;
+                dlReceived = 0; dlTotal = -1;
+                dlPaused = false; dlDiscard = false; dlStall = false; dlActive = true;
+                dlLastByteUtc = DateTime.UtcNow; dlLastReportUtc = DateTime.MinValue;
+                if (dlClient == null)
+                {
+                    dlClient = new System.Net.Http.HttpClient();
+                    dlClient.Timeout = System.Threading.Timeout.InfiniteTimeSpan;   // the stall watchdog governs
+                }
+                dlCts = new System.Threading.CancellationTokenSource();
+                Log("update download start: " + url + " -> " + p);
+                System.Threading.Tasks.Task.Run((Action)delegate { DownloadLoop(false); });
+                StartDlWatchdog();
+            }
+            catch (Exception ex)
+            {
+                Log("download start failed: " + ex.Message);
+                DlFail("start failed: " + ex.Message);
+            }
+        }
+
+        void DownloadLoop(bool resume)
+        {
+            dlLoopAlive = true;
+            try
+            {
+                using (var req = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Get, dlUrl))
+                {
+                    if (resume && dlReceived > 0)
+                        req.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(dlReceived, null);
+                    dlResp = dlClient.SendAsync(req, System.Net.Http.HttpCompletionOption.ResponseHeadersRead,
+                                                dlCts.Token).GetAwaiter().GetResult();
+                    int code = (int)dlResp.StatusCode;
+                    if (code != 200 && code != 206) { DlFail("HTTP " + code); return; }
+
+                    // 断点续传自适应: 206 with the exact requested offset → append;
+                    // 200 (server ignored Range) or mismatched Content-Range → discard
+                    // the old bytes and restart from zero.
+                    bool append = false;
+                    if (code == 206 && resume && dlReceived > 0)
+                    {
+                        var cr = dlResp.Content.Headers.ContentRange;
+                        if (cr != null && cr.From.HasValue && cr.From.Value == dlReceived) append = true;
+                        else dlReceived = 0;
+                    }
+                    else if (resume && dlReceived > 0)
+                    {
+                        dlReceived = 0;
+                    }
+                    long? len = dlResp.Content.Headers.ContentLength;
+                    dlTotal = append ? dlReceived + (len ?? 0) : (len.HasValue ? len.Value : -1);
+                    if (dlTotal <= 0) dlTotal = -1;
+                    Log("update download " + (append ? "resumed at " + dlReceived : "started") +
+                        (dlTotal > 0 ? "/" + dlTotal : "") + " (HTTP " + code + ")");
+
+                    dlStream = dlResp.Content.ReadAsStreamAsync().GetAwaiter().GetResult();
+                    using (FileStream fs = new FileStream(dlPath,
+                        append && dlReceived > 0 ? FileMode.Append : FileMode.Create,
+                        FileAccess.Write, FileShare.None, 8192))
+                    {
+                        byte[] buf = new byte[81920];
+                        while (true)
+                        {
+                            dlCts.Token.ThrowIfCancellationRequested();
+                            int n = dlStream.Read(buf, 0, buf.Length);
+                            if (n <= 0) break;
+                            fs.Write(buf, 0, n);
+                            dlReceived += n;
+                            dlLastByteUtc = DateTime.UtcNow;
+                            MaybeReportProgress();
+                        }
+                    }
+                    dlStream = null; dlResp = null;
+
+                    if (dlDiscard) { DiscardPartial(); DlPostCancelled(); return; }
+                    if (dlPaused) { DlPostPaused(); return; }
+                    if (dlTotal >= 0 && dlReceived < dlTotal)
+                    {
+                        DlFail("connection closed early (" + dlReceived + "/" + dlTotal + ")");
+                        return;
+                    }
+                    DlDone();
+                }
+            }
+            catch (Exception ex)
+            {
+                dlStream = null; dlResp = null;
+                // Cancels surface as OperationCanceledException OR as stream
+                // I/O errors (a blocked Read is broken by disposing the stream
+                // on the UI thread - see PauseDownload/CancelDownload).
+                if (dlDiscard) { DiscardPartial(); DlPostCancelled(); return; }
+                if (dlPaused) { DlPostPaused(); return; }
+                if (dlStall) { DlFail("30 秒无响应"); return; }
+                DlFail(ex.Message);
+            }
+            finally
+            {
+                dlLoopAlive = false;
+            }
+        }
+
+        void PauseDownload()
+        {
+            if (!dlActive || dlPaused || dlFinishing) return;
+            dlPaused = true;
+            BreakConnection();
+            Log("update download paused at " + dlReceived);
+        }
+
+        void ResumeDownload()
+        {
+            // Paused keeps dlActive=true with the loop exited: resume must pass
+            // exactly for that state.
+            if (dlFinishing || (dlActive && !dlPaused)) return;
+            if (dlPath == null || !File.Exists(dlPath))
+            {
+                Log("update resume failed: partial gone");
+                DlPostJson(new Dictionary<string, object> { { "type", "dl-error" } });
+                return;
+            }
+            dlActive = true; dlPaused = false; dlDiscard = false; dlStall = false;
+            dlLastByteUtc = DateTime.UtcNow; dlLastReportUtc = DateTime.MinValue;
+            dlCts = new System.Threading.CancellationTokenSource();
+            Log("update download resume from " + dlReceived);
+            System.Threading.Tasks.Task.Run((Action)delegate { DownloadLoop(true); });
+            StartDlWatchdog();
+        }
+
+        void CancelDownload()
+        {
+            if (dlFinishing) return;
+            if (dlLoopAlive)
+            {
+                // streaming loop alive: signal it, the catch discards + replies
+                dlDiscard = true; dlActive = false; dlPaused = false;
+                BreakConnection();
+                return;
+            }
+            // paused (loop exited) or stale: discard inline (退出即丢进度)
+            dlActive = false; dlPaused = false;
+            Log("update download cancelled while paused - discarding partial");
+            DiscardPartial();
+            DlPostCancelled();
+        }
+
+        void DiscardDownload()
+        {
+            // Panel hide / reload / app exit: the progress view is gone, so the
+            // partial goes with it. A completed package (dlFinishing) belongs
+            // to the orchestrator and must survive.
+            if (dlFinishing) return;
+            if (dlLoopAlive)
+            {
+                dlDiscard = true; dlActive = false; dlPaused = false;
+                BreakConnection();
+                StopDlWatchdog();
+                return;
+            }
+            dlActive = false; dlPaused = false;
+            DiscardPartial();
+            StopDlWatchdog();
+        }
+
+        void BreakConnection()
+        {
+            try { if (dlCts != null) dlCts.Cancel(); } catch { }
+            try { if (dlStream != null) dlStream.Dispose(); } catch { }
+        }
+
+        void DiscardPartial()
+        {
+            try { if (dlPath != null && File.Exists(dlPath)) File.Delete(dlPath); } catch { }
+        }
+
+        void DlFail(string why)
+        {
+            dlActive = false; dlPaused = false;
+            StopDlWatchdog();
+            DiscardPartial();
+            Log("update download failed: " + why);
+            DlPostJson(new Dictionary<string, object> { { "type", "dl-error" } });
+        }
+
+        void DlPostPaused()
+        {
+            DlPostJson(new Dictionary<string, object>
+            {
+                { "type", "dl-paused" },
+                { "received", dlReceived },
+                { "total", dlTotal < 0 ? (object)null : (object)dlTotal }
+            });
+        }
+
+        void DlPostCancelled()
+        {
+            StopDlWatchdog();
+            DlPostJson(new Dictionary<string, object> { { "type", "dl-cancelled" } });
+        }
+
+        void MaybeReportProgress()
+        {
+            DateTime now = DateTime.UtcNow;
+            if ((now - dlLastReportUtc).TotalMilliseconds < 250) return;
+            dlLastReportUtc = now;
+            DlPostJson(new Dictionary<string, object>
+            {
+                { "type", "dl-progress" },
+                { "received", dlReceived },
+                { "total", dlTotal < 0 ? (object)null : (object)dlTotal }
+            });
+        }
+
+        void StartDlWatchdog()
+        {
+            if (dlWatchdog == null)
+            {
+                dlWatchdog = new System.Windows.Forms.Timer();
+                dlWatchdog.Interval = 3000;
+                dlWatchdog.Tick += delegate
+                {
+                    if (!dlActive || dlPaused) return;
+                    if ((DateTime.UtcNow - dlLastByteUtc).TotalSeconds >= 30)
+                    {
+                        Log("update download stalled: 30s without bytes");
+                        dlStall = true;
+                        BreakConnection();
+                    }
+                };
+            }
+            dlWatchdog.Start();
+        }
+
+        void StopDlWatchdog()
+        {
+            try { if (dlWatchdog != null) dlWatchdog.Stop(); } catch { }
+        }
+
+        void DlPost(string json)
+        {
+            try
+            {
+                if (!shell.IsHandleCreated) return;
+                shell.BeginInvoke(new Action(delegate
+                {
+                    try
+                    {
+                        if (webReady && web != null && !web.IsDisposed && web.CoreWebView2 != null)
+                            web.CoreWebView2.PostWebMessageAsJson(json);
+                    }
+                    catch { }
+                }));
+            }
+            catch { }
+        }
+
+        void DlPostJson(Dictionary<string, object> o)
+        {
+            string json;
+            try { json = new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(o); }
+            catch { return; }
+            DlPost(json);
+        }
+
+        void DlDone()
+        {
+            dlActive = false; dlPaused = false;
+            StopDlWatchdog();
+            Log("update download complete: " + dlPath + " (" + dlReceived + " bytes)");
+            if (dlFinishing) return;
+            dlFinishing = true;
+            DlPostJson(new Dictionary<string, object>
+            {
+                { "type", "dl-done" },
+                { "path", dlPath }
+            });
+            try
+            {
+                ShowTrayBalloon("AgentsKontakt 邮差", "更新包下载完成，即将退出应用并打开安装程序。");
+                StartUpdateOrchestrator();
+            }
+            catch (Exception ex)
+            {
+                Log("update orchestration failed: " + ex.Message);
+            }
+            // Ownership of dlPath has passed to the orchestrator: a later
+            // DiscardDownload must not delete the completed package.
+            dlPath = null;
+            var t = new System.Windows.Forms.Timer { Interval = 1200 };
+            t.Tick += delegate { t.Stop(); t.Dispose(); ReallyQuit(); };
+            t.Start();
+        }
+
+        static string PsQuote(string s)
+        {
+            return "'" + (s ?? "").Replace("'", "''") + "'";
+        }
+
+        void StartUpdateOrchestrator()
+        {
+            // Detached helper that outlives this process: opens the interactive
+            // Setup wizard pre-filled with this install, waits, deletes the
+            // package only when the newest install log carries the "Install
+            // finished" milestone, and relaunches the postman if nothing runs.
+            string ps = Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
+            string setupLit = PsQuote(dlPath);
+            string installLit = PsQuote(installDir);
+            string dataLit = PsQuote(dataDir);
+            string exeLit = PsQuote(Path.Combine(installDir, "app", "AgentsKontaktPost.exe"));
+            string cmd =
+                "$p = Start-Process -FilePath " + setupLit +
+                " -ArgumentList @('--install-dir'," + installLit + ",'--data-dir'," + dataLit + ") -PassThru -Wait; " +
+                "$ok = $false; " +
+                "$log = Get-ChildItem -Path (Join-Path " + dataLit + " 'logs') -Filter 'install-*.log' -ErrorAction SilentlyContinue | " +
+                "Sort-Object LastWriteTime -Descending | Select-Object -First 1; " +
+                "if ($log) { $hit = Select-String -Path $log.FullName -Pattern 'Install finished' -Quiet -ErrorAction SilentlyContinue; if ($hit) { $ok = $true; } }; " +
+                "if ($ok) { Remove-Item -LiteralPath " + setupLit + " -Force -ErrorAction SilentlyContinue; }; " +
+                "Start-Sleep -Milliseconds 800; " +
+                "if (-not (Get-Process -Name 'AgentsKontaktPost' -ErrorAction SilentlyContinue)) { " +
+                "Start-Process -FilePath " + exeLit + " -ArgumentList '--minimized' }";
+            var psi = new ProcessStartInfo
+            {
+                FileName = ps,
+                Arguments = "-NoProfile -NonInteractive -WindowStyle Hidden -Command " + cmd,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = dataDir
+            };
+            Process.Start(psi);
+            Log("update orchestrator launched");
         }
 
         void MonitorTick(object sender, EventArgs e)
@@ -1089,6 +1645,27 @@ namespace AgentsKontaktPost
                 await web.EnsureCoreWebView2Async(env);
                 web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
                 web.CoreWebView2.Settings.IsStatusBarEnabled = false;
+                // Popups (the panel's 立即更新 button, any future external
+                // link) belong in the user's real browser, not in a tray
+                // panel: route NewWindowRequested to the system default
+                // browser instead of spawning a WebView2 popup window.
+                web.CoreWebView2.NewWindowRequested += delegate (object ns, CoreWebView2NewWindowRequestedEventArgs nw)
+                {
+                    nw.Handled = true;
+                    try { Process.Start(new ProcessStartInfo(nw.Uri) { UseShellExecute = true }); }
+                    catch (Exception openEx) { Log("open external link failed: " + openEx.Message); }
+                };
+                // Panel ⇄ host bridge: the dashboard posts update-download
+                // actions; progress/errors travel back as JSON messages.
+                web.CoreWebView2.WebMessageReceived += OnWebMessage;
+                // A panel reload (F5 / navigation) removes the progress view:
+                // the discard rule (退出即丢进度) then applies host-side without
+                // needing a page message.
+                web.CoreWebView2.ContentLoading += delegate
+                {
+                    Log("panel reloading - discarding any update download");
+                    try { shell.BeginInvoke(new Action(DiscardDownload)); } catch { }
+                };
                 // Browser death while the control lives: without this the only
                 // symptom was suspend failing into the log every 10s forever.
                 // Renderer failures recover in place; only browser exit is fatal.

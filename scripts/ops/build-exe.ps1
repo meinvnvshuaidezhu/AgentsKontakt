@@ -57,6 +57,7 @@ $sources = @(
     "/out:$out" `
     "/win32icon:$ico" `
     /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll `
+    /r:System.Net.Http.dll /r:System.Web.Extensions.dll `
     "/r:$wv2core" `
     "/r:$wv2forms" `
     $sources

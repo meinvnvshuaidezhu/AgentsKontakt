@@ -4,6 +4,7 @@ archive/
 archive.bak-20261001/
 post/
 logs/
+updates/
 .workbuddy/
 .zcode/
 
@@ -38,3 +39,6 @@ assets/poll-notify-last.txt
 # disposable install/regression sandbox roots (recreated by test runs)
 test-data*/
 test-install/
+
+# 项目流程文件（本地留存，不入仓）
+docs/调用流程.md

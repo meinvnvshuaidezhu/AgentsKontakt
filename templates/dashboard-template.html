@@ -18,6 +18,8 @@
     --r-lg:14px; --r-md:10px; --r-sm:8px;
   }
   *{box-sizing:border-box}
+  /* display rules below would otherwise defeat the hidden attribute (UA style) */
+  [hidden]{display:none !important}
   html,body{height:100%}
   body{
     margin:0; background:var(--bg); color:var(--fg); overflow:hidden;
@@ -41,7 +43,6 @@
     width:26px;height:26px;border-radius:var(--r-sm);background:var(--accent-soft);
     display:flex;align-items:center;justify-content:center;font-size:14px;
   }
-  .brand .sub{color:var(--faint);font-weight:400;font-size:12px;margin-left:2px}
   .h-right{margin-left:auto;display:flex;align-items:center;gap:12px}
   .pill{
     display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 11px;
@@ -54,6 +55,78 @@
   .pill.bad .dot{background:var(--bad)}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
   .genned{color:var(--faint);font-size:11.5px}
+
+  /* version chip (top-left update entry) + update dialog */
+  .ver{
+    position:relative;display:inline-flex;align-items:center;height:22px;padding:0 9px;
+    border:1px solid var(--line);border-radius:999px;background:transparent;
+    color:var(--muted);font-size:11.5px;font-family:inherit;cursor:pointer;flex:0 0 auto;
+  }
+  .ver:hover{background:var(--hover);color:var(--fg);border-color:var(--line-2)}
+  .ver .ver-dot{
+    position:absolute;top:-6px;right:-6px;width:12px;height:12px;border-radius:50%;
+    background:var(--bad);border:2px solid var(--bg);animation:pulse 2s infinite;
+  }
+  .overlay{
+    position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:50;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .udlg{
+    width:460px;max-width:calc(100vw - 48px);max-height:calc(100vh - 96px);
+    display:flex;flex-direction:column;
+    background:var(--card);border:1px solid var(--line-2);border-radius:var(--r-lg);
+    box-shadow:0 18px 48px rgba(0,0,0,.5);padding:18px 20px;
+  }
+  .udlg h3{margin:0 0 12px;font-size:15px;font-weight:600}
+  .udlg .urow{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin-bottom:8px}
+  .udlg .urow b{color:var(--fg);font-weight:600}
+  .udlg .unote-label{font-size:11px;letter-spacing:.12em;color:var(--faint);margin:10px 0 6px}
+  .udlg .notes{
+    font-size:12.5px;color:var(--muted);line-height:1.6;
+    white-space:pre-wrap;word-break:break-word;overflow-y:auto;
+    background:var(--card-2);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:10px 12px;max-height:220px;
+  }
+  .udlg .uerr{color:var(--bad);font-size:12.5px;margin:10px 0 4px}
+  .udlg .ucolor-ok{color:var(--ok);font-size:12.5px;margin:10px 0 4px}
+  .uprog{position:relative;height:14px;background:var(--card-2);border:1px solid var(--line);border-radius:999px;overflow:hidden;margin:10px 0 6px}
+  .uprog .fill{height:100%;width:0%;background:var(--accent);border-radius:999px;transition:width .25s}
+  .uprogpct{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    font-size:9.5px;font-weight:600;color:#fff;letter-spacing:.3px;pointer-events:none;
+    text-shadow:0 0 3px rgba(0,0,0,.55);
+  }
+  /* 流光：高光带扫过整个轨道，凸显正在处理 */
+  .uprog::after{
+    content:"";position:absolute;top:0;bottom:0;left:0;width:40%;
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.30),transparent);
+    transform:translateX(-110%);
+    animation:usweep 1.3s infinite linear;
+  }
+  .uprog.paused::after{display:none}          /* 暂停：流光停，进度条变暗 */
+  .uprog.idle::after{display:none}            /* 等待阶段：只有一条光带往复（双带并行会显"一前一后"） */
+  .uprog.paused .fill{opacity:.55}
+  /* 等待响应（还没有总长）：不定长模式——一段光带在轨道内往复扫动 */
+  .uprog.idle .fill{width:30%!important;transition:none;animation:uidle 1.15s infinite linear}
+  @keyframes usweep{0%{transform:translateX(-110%)}100%{transform:translateX(380%)}}
+  @keyframes uidle{0%{transform:translateX(-110%)}100%{transform:translateX(380%)}}
+  .uprogtext{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+  .udlg .ubtns{display:flex;gap:9px;justify-content:flex-end;align-items:center;margin-top:16px}
+  .udlg .uignore{
+    margin-right:auto;display:inline-flex;align-items:center;gap:6px;cursor:pointer;
+    font-size:12.5px;color:var(--muted);user-select:none;
+  }
+  .udlg .uignore input{accent-color:var(--accent);margin:0;cursor:pointer}
+  .udlg .uignore:hover{color:var(--fg)}
+  .udlg .ubtns button{
+    font-family:inherit;font-size:12.5px;height:30px;padding:0 14px;border-radius:var(--r-sm);
+    cursor:pointer;border:1px solid var(--line);background:var(--card-2);color:var(--fg);
+  }
+  .udlg .ubtns button:hover{border-color:var(--line-2);background:var(--hover)}
+  .udlg .ubtns button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .udlg .ubtns button.primary:hover{background:#565ae0}
+  .udlg .ulink{color:var(--accent);cursor:pointer;font-size:12.5px}
+  .udlg .ulink:hover{text-decoration:underline}
 
   /* layout */
   main{flex:1;display:grid;grid-template-columns:300px 1fr 316px;min-height:0}
@@ -149,7 +222,7 @@
 <body>
 <div class="app">
   <header>
-    <div class="brand"><span class="glyph">✉</span>AgentsKontakt<span class="sub">邮差面板</span></div>
+    <div class="brand"><span class="glyph">✉</span>AgentsKontakt<button class="ver" id="verChip" hidden title="检查更新">v<span id="verNum"></span><i class="ver-dot" id="verDot" hidden></i></button></div>
     <div class="h-right">
       <span class="pill" id="daemonPill"><span class="dot"></span><span id="daemonText">邮差状态未知</span></span>
       <span class="genned" id="genTime"></span>
@@ -193,9 +266,46 @@
     </section>
   </main>
 </div>
+
+<div class="overlay" id="updOverlay" hidden>
+  <div class="udlg" role="dialog" aria-modal="true" aria-label="软件更新">
+    <h3>软件更新</h3>
+    <div class="urow"><span>当前版本</span><b id="uCur">—</b></div>
+    <div class="urow" id="uLatestRow"><span>最新版本</span><b id="uLatest">—</b><span id="uStateTag" class="tag" hidden></span></div>
+    <div id="uChecking" class="ucolor-ok" style="color:var(--faint)">正在检查更新…</div>
+    <div id="uErr" class="uerr" hidden>检查失败：无法连接 GitHub。<span class="ulink" id="uRetry">重试</span></div>
+    <div id="uNotesWrap" hidden>
+      <div class="unote-label">更新内容</div>
+      <div class="notes" id="uNotes"></div>
+    </div>
+    <div id="uProg" hidden>
+      <div class="uprog" id="uProgTrack">
+        <div class="fill" id="uProgFill" style="width:0%"></div>
+        <span class="uprogpct" id="uProgPct"></span>
+      </div>
+      <div class="uprogtext"><span id="uProgBytes">正在连接更新服务器…</span></div>
+    </div>
+    <div id="uFail" class="uerr" hidden>更新失败，请前往更新页面手动更新。<span class="ulink" id="uFailPage">打开发布页</span></div>
+    <div id="uDone" class="ucolor-ok" hidden></div>
+    <div class="urow" style="margin-top:10px;margin-bottom:0" id="uPageRow" hidden>
+      <span>没有自动下载？</span><span class="ulink" id="uPage">打开发布页手动下载</span>
+    </div>
+    <div class="ubtns">
+      <label class="uignore" id="uIgnoreWrap" hidden><input type="checkbox" id="uIgnoreChk">忽略此更新</label>
+      <button class="primary" id="uBtnUpdate" hidden>更新</button>
+      <button id="uBtnPause" hidden>暂停</button>
+      <button id="uBtnSkip">确定</button>
+    </div>
+  </div>
+</div>
+<!-- 静态小文件：邮局每次巡检都会重写（内容不变则跳过）。数据管线挂掉时
+     版本徽标与更新入口仍可用——邮差挂掉正是用户最需要检查更新的时候。 -->
+<script src="dashboard-version.js"></script>
 <script>
 'use strict';
 var LOCAL = null;
+// 版本来源：dashboard-version.js（静态、始终可读）优先，payload.version 兜底刷新
+var APP_VERSION = (typeof window.DASHBOARD_VERSION==='string' && window.DASHBOARD_VERSION) || null;
 var selected = null;
 
 function esc(s){return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
@@ -394,13 +504,354 @@ function renderInflight(d){
 
 function renderAll(d){
   LOCAL=d.localAgent;
+  if(d.version)APP_VERSION=String(d.version);
   renderDaemon(d);
   renderList(d);
   var chat=selected?chatOf(selected):null;
   renderChat(d,chat);
   renderRight(d,chat);
   renderInflight(d);
+  renderUpdateChip();
 }
+
+// ---- 更新入口（GitHub Releases）---------------------------------------------
+// 左上角版本徽标 = 更新入口。数据流：面板自己 fetch GitHub API（file:// 页面
+// 对带 ACAO:* 的 https 目标可直连；失败静默降级，不影响面板其余功能）；当前
+// 版本由 dashboard.ps1 注入 payload.version。忽略的版本记 localStorage，存储
+// 不可用时退化为会话级内存变量（仅本次会话生效）。
+var UPD = {
+  api: 'https://api.github.com/repos/meinvnvshuaidezhu/AgentsKontakt/releases/latest',
+  page: 'https://github.com/meinvnvshuaidezhu/AgentsKontakt/releases',
+  state: 'idle',      // idle | checking | ok | error
+  view: 'info',       // info | downloading | dlfail | dldone
+  latest: null,       // 最新版本号（去 v 前缀）
+  notes: '',          // release body（更新内容）
+  url: null,          // 该 release 的 html_url
+  setupUrl: null,     // Setup.exe 资产直链
+  setupName: null,    // Setup.exe 文件名
+  dl: null,           // {received,total,paused}
+  lastFailed: false,  // 上次检查失败/超时 → 自动重查降频到 6h
+  trayNotifiedFor: null,  // 已通知过托盘的版本号（去重：每版本一次）
+  checkedAt: 0,
+  timer: null,
+  ab: null,
+  abTimer: null
+};
+// HOST = 托盘 WebView2 宿主。有宿主：下载由 C# 执行（无 CORS 限制）并在完成
+// 后自动退出应用、弹出安装向导；无宿主（浏览器兜底）：面板自己 fetch 下载，
+// GitHub 资产无 CORS 头时 fetch 失败 → 自动转交浏览器下载器。
+var HOST = (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) ? window.chrome.webview : null;
+var _ignoredMem = null;
+
+function cmpVer(a,b){
+  var pa=String(a==null?'':a).replace(/^v/i,'').trim().split(/[^0-9]+/).filter(function(x){return x!=='';}).map(Number);
+  var pb=String(b==null?'':b).replace(/^v/i,'').trim().split(/[^0-9]+/).filter(function(x){return x!=='';}).map(Number);
+  for(var i=0;i<Math.max(pa.length,pb.length);i++){
+    var x=pa[i]||0, y=pb[i]||0;
+    if(x!==y)return x<y?-1:1;
+  }
+  return 0;
+}
+function ignoredVersion(){
+  try{var v=localStorage.getItem('ak_update_ignored');if(v)return v;}catch(e){}
+  return _ignoredMem;
+}
+function hasUpdate(){
+  return UPD.state==='ok'&&APP_VERSION&&UPD.latest&&cmpVer(UPD.latest,APP_VERSION)>0;
+}
+function checkUpdate(force){
+  if(!window.fetch)return;
+  if(UPD.state==='checking')return;
+  if(UPD.view==='downloading')return;   // 下载中不并发检查
+  if(!force&&UPD.state!=='idle'&&Date.now()-UPD.checkedAt<(UPD.lastFailed?21600000:1800000))return;
+  UPD.state='checking';renderUpdateDialog();renderUpdateChip();
+  // 30s 无响应即停止本次请求（需求：打开应用 30s 无响应→停止，之后每 6h 再查）
+  if(typeof AbortController!=='undefined'){
+    UPD.ab=new AbortController();
+    UPD.abTimer=setTimeout(function(){try{UPD.ab.abort();}catch(e){}},30000);
+  }
+  fetch(UPD.api+'?t='+Date.now(),{
+    headers:{'Accept':'application/vnd.github+json'},
+    signal:(UPD.ab&&UPD.ab.signal)||undefined
+  }).then(function(r){
+    if(!r.ok)throw new Error('http '+r.status);
+    return r.json();
+  }).then(function(j){
+    clearTimeout(UPD.abTimer);
+    UPD.latest=String(j.tag_name||'').replace(/^v/i,'').trim();
+    UPD.notes=String(j.body||'');
+    UPD.url=String(j.html_url||UPD.page);
+    UPD.setupUrl=null;UPD.setupName=null;
+    (j.assets||[]).forEach(function(a){
+      if(/-Setup\.exe$/i.test(String(a.name||''))){UPD.setupUrl=a.browser_download_url;UPD.setupName=a.name;}
+    });
+    UPD.state='ok';UPD.lastFailed=false;UPD.checkedAt=Date.now();
+    renderUpdateDialog();renderUpdateChip();
+    scheduleNextCheck();
+  }).catch(function(){
+    clearTimeout(UPD.abTimer);
+    UPD.state='error';UPD.lastFailed=true;UPD.checkedAt=Date.now();
+    renderUpdateDialog();renderUpdateChip();
+    scheduleNextCheck();
+  });
+}
+function scheduleNextCheck(){
+  // 成功 → 30min；失败/超时 → 6h（需求：无响应时停止请求，每六小时一次）
+  clearTimeout(UPD.timer);
+  UPD.timer=setTimeout(function(){checkUpdate(false);},UPD.lastFailed?21600000:1800000);
+}
+function renderUpdateChip(){
+  var chip=document.getElementById('verChip');
+  if(!APP_VERSION){chip.hidden=true;return;}   // 旧生成器没有 version 字段：入口整体隐藏
+  chip.hidden=false;
+  document.getElementById('verNum').textContent=APP_VERSION;
+  document.getElementById('verDot').hidden=!(hasUpdate()&&UPD.latest!==ignoredVersion());
+  // 托盘红点 + 系统通知（宿主换托盘图标并按系统版本弹通知；去重：每版本一次）
+  if(HOST){
+    var show=hasUpdate()&&UPD.latest!==ignoredVersion();
+    if(show&&UPD.trayNotifiedFor!==UPD.latest){
+      UPD.trayNotifiedFor=UPD.latest;
+      HOST.postMessage({action:'update-available',version:UPD.latest});
+    }else if(!show&&UPD.trayNotifiedFor){
+      UPD.trayNotifiedFor=null;
+      HOST.postMessage({action:'update-clear'});
+    }
+  }
+}
+function openUpdateDialog(){
+  document.getElementById('updOverlay').hidden=false;
+  renderUpdateDialog();
+  if(UPD.view==='downloading'){ if(HOST)HOST.postMessage({action:'dl-state'}); return; }
+  // 打开即主动请求一次检查（无更新时也重查，需求 2）
+  if(UPD.state!=='checking')checkUpdate(true);
+}
+function closeUpdateDialog(){
+  if(UPD.view==='downloading')discardDownload();   // 退出即丢进度
+  UPD.view='info';
+  document.getElementById('updOverlay').hidden=true;
+}
+function renderUpdateDialog(){
+  var ov=document.getElementById('updOverlay');
+  if(ov.hidden)return;   // 弹窗没开就不动 DOM，打开时由 openUpdateDialog 渲染
+  var el=function(id){return document.getElementById(id);};
+  var view=UPD.view||'info';
+  var info=(view==='info');
+  var dl=(view==='downloading');
+  var up=hasUpdate();
+  // 同一个弹窗：下载中不替换内容，只把进度条插到内容下方
+  el('uCur').textContent=APP_VERSION?('v'+APP_VERSION):'未知';
+  el('uLatestRow').hidden=!((info||dl)&&UPD.state==='ok');
+  el('uChecking').hidden=!(info&&UPD.state==='checking');
+  el('uErr').hidden=!(info&&UPD.state==='error');
+  el('uBtnUpdate').hidden=!(info&&up);
+  el('uIgnoreWrap').hidden=!(info||dl);
+  el('uBtnPause').hidden=!dl;
+  el('uBtnPause').textContent=(UPD.dl&&UPD.dl.paused)?'继续':'暂停';
+  el('uBtnSkip').textContent=dl?'取消':((view==='dlfail'||view==='dldone')?'确定':(up?'跳过':'确定'));
+  el('uIgnoreChk').checked=!!((info||dl)&&up&&UPD.latest&&UPD.latest===ignoredVersion());
+  var tag=el('uStateTag');
+  if((info||dl)&&UPD.state==='ok'){
+    el('uLatest').textContent='v'+UPD.latest;
+    tag.hidden=false;tag.className='tag '+((up||dl)?'warn':'ok');
+    tag.textContent=dl?'正在下载':(up?'有新版本':'已是最新版本');
+    el('uNotesWrap').hidden=false;
+    el('uNotes').textContent=UPD.notes||'（本次发布没有填写更新说明）';
+    el('uPageRow').hidden=!info||!up;
+  }else{
+    tag.hidden=true;el('uNotesWrap').hidden=true;el('uPageRow').hidden=true;
+  }
+  el('uProg').hidden=!dl;
+  if(dl)renderProgress();
+  el('uFail').hidden=(view!=='dlfail');
+  el('uDone').hidden=(view!=='dldone');
+  if(view==='dldone'){
+    el('uDone').textContent=HOST?'更新包下载完成，即将退出应用并打开安装程序…':'安装包已交由浏览器下载，完成后请在下载目录中手动运行安装。';
+  }
+}
+function fmtMB(n){ if(n==null||n<0)return'— MB'; return (n/1048576).toFixed(1)+' MB'; }
+function renderProgress(){
+  var d=UPD.dl||{received:0,total:-1,paused:false};
+  var trk=document.getElementById('uProgTrack');
+  var idle=!(d.total>0);   // 还没拿到总长 = 等待响应：不定长流光
+  trk.className='uprog'+(idle?' idle':'')+(d.paused?' paused':'');
+  var pct=idle?0:Math.min(100,Math.round(d.received*100/d.total));
+  document.getElementById('uProgFill').style.width=idle?'30%':pct+'%';
+  document.getElementById('uProgPct').textContent=idle?'':pct+'%';   // 百分比居中在进度条上
+  document.getElementById('uProgBytes').textContent=idle?'正在连接更新服务器…':(fmtMB(d.received)+' / '+fmtMB(d.total));
+}
+// 勾选框 → 忽略登记：勾上=不再提醒该版本（红点消失），取消勾=恢复提醒。
+// 勾选状态在「更新」「跳过/确定」任意收尾动作时落库。
+function syncIgnoreFromCheckbox(){
+  if(!UPD.latest)return;
+  var chk=document.getElementById('uIgnoreChk');
+  if(chk.checked){
+    _ignoredMem=UPD.latest;
+    try{localStorage.setItem('ak_update_ignored',UPD.latest);}catch(e){}
+  }else{
+    _ignoredMem=null;
+    try{localStorage.removeItem('ak_update_ignored');}catch(e){}
+  }
+  renderUpdateChip();
+}
+document.getElementById('verChip').onclick=openUpdateDialog;
+document.getElementById('uBtnSkip').onclick=function(){
+  if(UPD.view==='downloading'){cancelDownload();return;}   // 取消：丢弃进度，回更新页原文案
+  if(UPD.view==='info'){syncIgnoreFromCheckbox();}
+  closeUpdateDialog();
+};
+document.getElementById('uBtnPause').onclick=function(){
+  if(!UPD.dl)return;
+  if(UPD.dl.paused){   // 继续
+    UPD.dl.paused=false;renderUpdateDialog();
+    if(HOST)HOST.postMessage({action:'dl-resume'});else browserResume();
+  }else{               // 暂停
+    if(!(UPD.dl.total>0)){
+      // 还没进入下载进度（总长未知，仍在连接）：暂停=取消，丢弃并返回更新界面
+      // 一旦拿到总长（含 0%）即视为下载中：暂停就是真暂停
+      cancelDownload();return;
+    }
+    UPD.dl.paused=true;renderUpdateDialog();
+    if(HOST)HOST.postMessage({action:'dl-pause'});else browserPause();
+  }
+};
+document.getElementById('uBtnUpdate').onclick=function(){
+  if(!UPD.setupUrl){window.open(UPD.url||UPD.page,'_blank');return;}   // 没有 Setup 资产：退回打开发布页
+  startDownload();
+};
+document.getElementById('uPage').onclick=function(){window.open(UPD.url||UPD.page,'_blank');};
+document.getElementById('uFailPage').onclick=function(){window.open(UPD.url||UPD.page,'_blank');};
+document.getElementById('uRetry').onclick=function(){checkUpdate(true);};
+document.addEventListener('keydown',function(ev){if(ev.key==='Escape')closeUpdateDialog();});
+
+function startDownload(){
+  UPD.view='downloading';
+  UPD.dl={received:0,total:-1,paused:false};
+  renderUpdateDialog();
+  if(HOST){
+    HOST.postMessage({action:'download-update',url:UPD.setupUrl,
+      name:UPD.setupName||('AgentsKontakt-x64-'+UPD.latest+'-Setup.exe'),version:UPD.latest});
+  }else{
+    browserDownload();
+  }
+}
+function cancelDownload(){
+  if(HOST)HOST.postMessage({action:'dl-cancel'});else browserAbort();
+  syncIgnoreFromCheckbox();   // 勾选框在下载中可见：取消时按勾选状态落库
+  UPD.view='info';UPD.dl=null;
+  renderUpdateDialog();
+}
+function discardDownload(){
+  // 退出即丢进度：关弹窗/面板隐藏/应用退出 → 中止并丢弃全部已下载字节
+  if(HOST)HOST.postMessage({action:'dl-abandon'});else browserAbort();
+  UPD.dl=null;UPD.view='info';
+}
+function dlFailView(){browserAbort();UPD.view='dlfail';UPD.dl=null;renderUpdateDialog();}
+
+// ---- 宿主消息 → 下载视图 ----
+var _dlRenderAt=0;
+function throttleRender(){var now=Date.now();if(now-_dlRenderAt<200)return;_dlRenderAt=now;renderUpdateDialog();}
+if(HOST)HOST.addEventListener('message',function(ev){
+  var d=ev.data||{};
+  switch(d.type){
+    case 'dl-progress':
+      // 保留 paused：暂停后仍可能有在途 progress 消息到达，不能覆盖暂停态
+      UPD.dl={received:d.received||0,total:(d.total==null?-1:d.total),paused:(UPD.dl&&UPD.dl.paused)||false};
+      if(UPD.view==='downloading')throttleRender();
+      break;
+    case 'dl-paused':
+      if(UPD.dl){UPD.dl.paused=true;if(UPD.view==='downloading')renderUpdateDialog();}
+      break;
+    case 'dl-cancelled':
+      UPD.view='info';UPD.dl=null;renderUpdateDialog();break;
+    case 'dl-error':
+      UPD.view='dlfail';UPD.dl=null;renderUpdateDialog();break;
+    case 'dl-done':   // 宿主已开始编排：自动退出应用 → 弹安装向导
+      UPD.view='dldone';UPD.dl=null;renderUpdateDialog();break;
+    case 'dl-state':  // 重同步（面板从挂起恢复等场景）
+      if(d.active){UPD.dl={received:d.received||0,total:(d.total==null?-1:d.total),paused:!!d.paused};}
+      else if(UPD.view==='downloading'){UPD.view='info';UPD.dl=null;}
+      renderUpdateDialog();break;
+    default:break;
+  }
+});
+
+// ---- 浏览器模式下载（无宿主）：fetch 流式 + 自适应续传 + 失败降级 ----
+// 同源代理优先：面板若由 http(s) 服务器提供（预览/自建部署），走同源
+// /dl-proxy 静默下载（服务器实现可选）；file:// 无代理可用 → 直连 GitHub
+// 必被 CORS 拦 → 自动转交浏览器下载器（弹下载，无法后台静默）。
+function proxyUrlFor(u){
+  if(location.protocol!=='http:'&&location.protocol!=='https:')return null;
+  return location.origin+'/dl-proxy?url='+encodeURIComponent(u);
+}
+var brCtl=null,brStall=null,brState=null;
+function browserDownload(){
+  brState={chunks:[],recvd:0,total:-1,lastByte:Date.now(),url:proxyUrlFor(UPD.setupUrl)||UPD.setupUrl};
+  fetchRange(0);
+}
+function fetchRange(from){
+  brCtl=(typeof AbortController!=='undefined')?new AbortController():null;
+  var opts={};
+  if(brCtl)opts.signal=brCtl.signal;
+  if(from>0)opts.headers={'Range':'bytes='+from+'-'};
+  fetch(brState.url,opts).then(function(r){
+    if(!r.ok){dlFailView();return;}
+    if(from>0&&r.status===200){brState.chunks=[];brState.recvd=0;}   // 服务器不支持续传 → 重新下载
+    var cl=parseInt(r.headers.get('content-length')||'0',10);
+    brState.total=(r.status===206)?(brState.recvd+(cl||0)):(cl||-1);
+    var reader=r.body.getReader();
+    brStall=setInterval(function(){   // 30s 无字节 → 失败（需求 3）
+      if(Date.now()-brState.lastByte>=30000){browserAbort();dlFailView();}
+    },5000);
+    function pump(){
+      reader.read().then(function(res){
+        if(res.done){browserSave();return;}
+        brState.chunks.push(res.value);brState.recvd+=res.value.byteLength;brState.lastByte=Date.now();
+        if(UPD.dl)UPD.dl={received:brState.recvd,total:brState.total,paused:(UPD.dl&&UPD.dl.paused)||false};
+        throttleRender();
+        pump();
+      }).catch(function(){
+        if(brStall){clearInterval(brStall);brStall=null;}
+        if(UPD.dl&&UPD.dl.paused)return;          // 暂停中：字节留在内存等「继续」
+        if(UPD.view==='downloading')dlFailView();
+      });
+    }
+    pump();
+  }).catch(function(){
+    if(UPD.dl&&UPD.dl.paused)return;              // 暂停引发的 abort：不算失败
+    browserFallbackAnchor();                       // CORS 拦截/网络失败 → 转交浏览器
+  });
+}
+function browserPause(){try{if(brCtl)brCtl.abort();}catch(e){}}
+function browserResume(){
+  if(brState&&brState.recvd>0)fetchRange(brState.recvd);   // Range→206 续传；200→重来
+  else browserDownload();
+}
+function browserAbort(){
+  brState=null;
+  try{if(brCtl)brCtl.abort();}catch(e){}
+  if(brStall){clearInterval(brStall);brStall=null;}
+}
+function browserFallbackAnchor(){
+  brState=null;try{if(brCtl)brCtl.abort();}catch(e){}
+  if(brStall){clearInterval(brStall);brStall=null;}
+  try{window.open(UPD.setupUrl,'_blank');}catch(e){}             // 浏览器下载器接手
+  UPD.view='dldone';UPD.dl=null;renderUpdateDialog();
+}
+function browserSave(){
+  if(brStall){clearInterval(brStall);brStall=null;}
+  try{
+    var blob=new Blob(brState.chunks);
+    var a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=UPD.setupName||('AgentsKontakt-x64-'+UPD.latest+'-Setup.exe');
+    document.body.appendChild(a);a.click();a.remove();
+    setTimeout(function(){try{URL.revokeObjectURL(a.href);}catch(e){}},10000);
+  }catch(e){}
+  brState=null;UPD.dl=null;UPD.view='dldone';renderUpdateDialog();
+}
+
+checkUpdate(false);
+scheduleNextCheck();
 
 var _lastSeq = null;
 var _lastRenderAt = 0;

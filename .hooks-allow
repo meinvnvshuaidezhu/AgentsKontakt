@@ -5,3 +5,6 @@ scripts/core/common.ps1
 scripts/core/watch.ps1
 scripts/tests/run-tests.ps1
 scripts/tests/test-v3-selftest.ps1
+app/Program.cs
+scripts/core/dashboard.ps1
+templates/dashboard-template.html

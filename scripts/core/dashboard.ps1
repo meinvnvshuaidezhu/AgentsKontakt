@@ -15,6 +15,37 @@ if (-not $Root) {
 }
 . (Join-Path $PSScriptRoot 'common.ps1')
 
+# ---- panel version (payload.version feeds the top-left update entry) ---------
+# FileVersion of the postman exe, resolved across data layouts:
+#   flat/dev    <root>\app\AgentsKontaktPost.exe
+#   one-folder  <install>\app\AgentsKontaktPost.exe (sits next to <install>\data)
+#   split data  via the HKCU uninstall key's InstallLocation
+# Unresolvable -> empty string; the panel then hides the entry entirely.
+function Get-AppExePath {
+    $rel = 'app\AgentsKontaktPost.exe'
+    foreach ($p in @((Join-Path $Root $rel), (Join-Path $Root ('..\' + $rel)))) {
+        if (Test-Path -LiteralPath $p) { return $p }
+    }
+    try {
+        $loc = (Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\AgentsKontaktPost' -ErrorAction Stop).InstallLocation
+        if ($loc) {
+            $p = Join-Path $loc $rel
+            if (Test-Path -LiteralPath $p) { return $p }
+        }
+    } catch {}
+    return ''
+}
+function Get-AppVersion {
+    $exe = Get-AppExePath
+    if (-not $exe) { return '' }
+    try {
+        $v = (Get-Item -LiteralPath $exe).VersionInfo.FileVersion
+        if ($v) { return [string]$v }
+    } catch {}
+    return ''
+}
+$AppVersion = Get-AppVersion
+
 # ---- change gate: skip the full rebuild when nothing we read has moved -------
 # The sweep calls this every 60s and a full pass reads every message body in
 # every mailbox plus the whole archive (~0.7 CPU-s here). The metadata-only
@@ -55,6 +86,14 @@ try { $fp = [AkScan]::Fingerprint($roots) } catch { $fp = '' }   # walk failed: 
 # only ever computed - never appended - so template edits alone never triggered
 # a rebuild.
 $fp = 'tpl:' + $tplStamp + ';' + $fp
+# Mix in the exe stamp: payload.version reads the postman exe's FileVersion, so
+# an upgraded exe must force a data rebuild even when no mailbox moved.
+$exeStamp = ''
+$exePath0 = Get-AppExePath
+if ($exePath0) {
+    try { $ei = Get-Item -LiteralPath $exePath0; $exeStamp = '{0}:{1}' -f $ei.Length, $ei.LastWriteTimeUtc.Ticks } catch {}
+}
+$fp = 'exe:' + $exeStamp + ';' + $fp
 # liveness heartbeat (v2.3.4): written on EVERY call - even when the fingerprint
 # gate skips the rebuild - so the panel can tell an idle-but-alive postman from
 # a dead one (idle post offices previously showed 邮差未响应).
@@ -66,6 +105,17 @@ try {
         if ($m.Success) { $seqVal = $m.Groups[1].Value }
     }
     [System.IO.File]::WriteAllText($seqFile, 'window.DASHBOARD_SEQ = "' + $seqVal + '"; window.DASHBOARD_HEARTBEAT = "' + (Get-Date -Format "yyyy-MM-ddTHH:mm:ss") + '";')
+} catch {}
+# Panel version for the top-left update entry, written on EVERY call (content-
+# guarded) into its own tiny file that the template loads statically: the badge
+# must render even when dashboard-data.js is stale or missing (dead postman is
+# exactly when the user wants to check for updates).
+$verFile = Join-Path $dashDir0 'dashboard-version.js'
+try {
+    $verContent = 'window.DASHBOARD_VERSION = "' + $AppVersion + '";'
+    if (-not (Test-Path -LiteralPath $verFile) -or ([System.IO.File]::ReadAllText($verFile)) -ne $verContent) {
+        [System.IO.File]::WriteAllText($verFile, $verContent, $script:UTF8Bom)
+    }
 } catch {}
 if ($fp.Length -gt 0 -and (Test-Path -LiteralPath $fpFile) -and (Test-Path -LiteralPath $dataJs) -and (Test-Path -LiteralPath $dataHtml)) {
     $lastFp = $null
@@ -466,6 +516,7 @@ $payload = [pscustomobject]@{
     generated = ($now.ToString('yyyy-MM-dd HH:mm:ss'))
     now = (Get-Iso $now)
     localAgent = $LocalAgent
+    version = $AppVersion
     agents = $agentList
     chats = $chatList
     trash = $trashNode

@@ -40,5 +40,7 @@ assets/poll-notify-last.txt
 test-data*/
 test-install/
 
-# 项目流程文件（本地留存，不入仓）
-docs/调用流程.md
+
+# 本机门禁白名单与构建产物（开源仓不含；本地保留，exe 走 Release 下载）
+.hooks-allow
+app/AgentsKontaktPost.exe
